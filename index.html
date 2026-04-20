@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LUMABAT — Construire l'Exception</title>
-  <meta name="description" content="LUMABAT — Construction de maisons de luxe à Toulouse. Construire l'Exception." />
+  <meta name="description" content="LUMABAT — Construction de maisons d'exception à Toulouse. Construire l'Exception." />
+  <link rel="icon" type="image/svg+xml" href="logo.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -167,20 +168,19 @@
     }
     .about-visual {
       aspect-ratio: 3/4;
-      background: linear-gradient(160deg, #3A3A3A 0%, #222 100%);
-      display: flex; align-items: center; justify-content: center;
       position: relative; overflow: hidden;
+    }
+    .about-visual img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      filter: brightness(0.82);
     }
     .about-visual::before {
       content: '';
       position: absolute; inset: 2rem;
-      border: 1px solid rgba(160,132,92,0.3);
-    }
-    .about-visual-text {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 5rem; font-weight: 300;
-      color: rgba(160,132,92,0.2);
-      letter-spacing: 0.1em;
+      border: 1px solid rgba(160,132,92,0.4);
+      z-index: 1;
+      pointer-events: none;
     }
 
     /* ── SERVICES ── */
@@ -312,9 +312,9 @@
 <section class="hero" id="home">
   <div class="hero-content">
     <div class="hero-eyebrow">
-      <span data-lang="fr">Toulouse, France · Construction de Luxe</span>
-      <span data-lang="en">Toulouse, France · Luxury Construction</span>
-      <span data-lang="pt">Toulouse, França · Construção de Luxo</span>
+      <span data-lang="fr">Toulouse, France · Construction & Architecture</span>
+      <span data-lang="en">Toulouse, France · Construction & Architecture</span>
+      <span data-lang="pt">Toulouse, França · Construção & Arquitectura</span>
     </div>
     <h1>
       <span data-lang="fr">Construire<br><em>l'Exception</em></span>
@@ -322,9 +322,9 @@
       <span data-lang="pt">Construir<br><em>a Excelência</em></span>
     </h1>
     <p class="hero-sub">
-      <span data-lang="fr">Maisons individuelles de luxe, conçues avec précision et réalisées avec les matériaux les plus performants d'Europe.</span>
-      <span data-lang="en">Luxury homes designed with precision and built with the highest-performing materials in Europe.</span>
-      <span data-lang="pt">Moradias de luxo, concebidas com precisão e construídas com os melhores materiais da Europa.</span>
+      <span data-lang="fr">Maisons individuelles d'exception, conçues avec précision et réalisées avec les matériaux les plus performants d'Europe.</span>
+      <span data-lang="en">Homes designed with precision and built with the highest-performing materials in Europe.</span>
+      <span data-lang="pt">Moradias de excepção, concebidas com precisão e construídas com os melhores materiais da Europa.</span>
     </p>
     <a href="#contact" class="hero-cta">
       <span data-lang="fr">Nous contacter</span>
@@ -345,9 +345,9 @@
       <span data-lang="pt">Uma visão clara<br>da excelência</span>
     </h2>
     <p>
-      <span data-lang="fr">LUMABAT est une société de construction française spécialisée dans la réalisation de maisons individuelles de luxe. Nous combinons les meilleures technologies de construction européennes — structure EPS/SIP, triple vitrage, certification RE2020 Score A — avec un sens aigu du détail architectural.</span>
-      <span data-lang="en">LUMABAT is a French construction company specialising in luxury residential homes. We combine the best European construction technologies — EPS/SIP structure, triple glazing, RE2020 Score A certification — with a sharp sense of architectural detail.</span>
-      <span data-lang="pt">A LUMABAT é uma empresa francesa de construção especializada em moradias de luxo. Combinamos as melhores tecnologias de construção europeias — estrutura EPS/SIP, vidro triplo, certificação RE2020 Score A — com um sentido apurado do detalhe arquitetónico.</span>
+      <span data-lang="fr">LUMABAT est une société de construction française spécialisée dans la réalisation de maisons individuelles d'exception. Nous combinons les meilleures technologies de construction européennes — structure EPS/SIP, triple vitrage, certification RE2020 Score A — avec un sens aigu du détail architectural.</span>
+      <span data-lang="en">LUMABAT is a French construction company specialising in exceptional residential homes. We combine the best European construction technologies — EPS/SIP structure, triple glazing, RE2020 Score A certification — with a sharp sense of architectural detail.</span>
+      <span data-lang="pt">A LUMABAT é uma empresa francesa de construção especializada em moradias de excepção. Combinamos as melhores tecnologias de construção europeias — estrutura EPS/SIP, vidro triplo, certificação RE2020 Score A — com um sentido apurado do detalhe arquitetónico.</span>
     </p>
     <p>
       <span data-lang="fr">Basée à Toulouse, notre équipe supervise chaque projet de la fondation à la livraison, avec une exigence absolue sur la qualité des matériaux et la performance énergétique.</span>
@@ -386,7 +386,7 @@
     </div>
   </div>
   <div class="about-visual">
-    <div class="about-visual-text">LB</div>
+    <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80" alt="Maison contemporaine LUMABAT" loading="lazy" />
   </div>
 </section>
 
@@ -406,40 +406,40 @@
     <div class="service-card">
       <div class="service-num">01</div>
       <div class="service-title">
-        <span data-lang="fr">Construction neuve</span>
-        <span data-lang="en">New build</span>
-        <span data-lang="pt">Construção nova</span>
+        <span data-lang="fr">La maison juste</span>
+        <span data-lang="en">The right home</span>
+        <span data-lang="pt">A casa certa</span>
       </div>
       <div class="service-desc">
-        <span data-lang="fr">Maisons individuelles clé en main, structure EPS/SIP, certification RE2020 Score A, garantie décennale.</span>
-        <span data-lang="en">Turnkey residential homes, EPS/SIP structure, RE2020 Score A certified, decennial warranty.</span>
-        <span data-lang="pt">Moradias chave-na-mão, estrutura EPS/SIP, certificação RE2020 Score A, garantia decenal.</span>
+        <span data-lang="fr">Nous concevons chaque maison comme une réponse précise à une vie. Structure EPS/SIP, certification RE2020 Score A, garantie décennale — sans compromis.</span>
+        <span data-lang="en">We design each home as a precise answer to a life. EPS/SIP structure, RE2020 Score A certified, decennial warranty — no compromise.</span>
+        <span data-lang="pt">Cada casa é uma resposta precisa a uma vida. Estrutura EPS/SIP, certificação RE2020 Score A, garantia decenal — sem compromisso.</span>
       </div>
     </div>
     <div class="service-card">
       <div class="service-num">02</div>
       <div class="service-title">
-        <span data-lang="fr">Design architectural</span>
-        <span data-lang="en">Architectural design</span>
-        <span data-lang="pt">Design arquitetónico</span>
+        <span data-lang="fr">L'espace comme langage</span>
+        <span data-lang="en">Space as language</span>
+        <span data-lang="pt">O espaço como linguagem</span>
       </div>
       <div class="service-desc">
-        <span data-lang="fr">Espaces ouverts, salon cathédrale, grandes baies vitrées, piscine intégrée — chaque détail pensé pour la luminosité.</span>
-        <span data-lang="en">Open spaces, cathedral living room, large glazed openings, integrated pool — every detail designed for light.</span>
-        <span data-lang="pt">Espaços abertos, sala catedral, grandes envidraçados, piscina integrada — cada detalhe pensado para a luminosidade.</span>
+        <span data-lang="fr">Salon cathédrale, baies vitrées du sol au plafond, lumière naturelle orchestrée — nous traduisons vos intuitions en architecture habitée.</span>
+        <span data-lang="en">Cathedral living room, floor-to-ceiling glazed openings, orchestrated natural light — we translate your intuitions into lived architecture.</span>
+        <span data-lang="pt">Sala catedral, envidraçados do chão ao tecto, luz natural orquestrada — traduzimos as suas intuições em arquitectura vivida.</span>
       </div>
     </div>
     <div class="service-card">
       <div class="service-num">03</div>
       <div class="service-title">
-        <span data-lang="fr">Performance énergétique</span>
-        <span data-lang="en">Energy performance</span>
-        <span data-lang="pt">Desempenho energético</span>
+        <span data-lang="fr">La maison qui respire</span>
+        <span data-lang="en">The home that breathes</span>
+        <span data-lang="pt">A casa que respira</span>
       </div>
       <div class="service-desc">
-        <span data-lang="fr">Triple vitrage, isolation EPS 200mm, étanchéité à l'air optimale. Confort maximal, factures minimales.</span>
-        <span data-lang="en">Triple glazing, 200mm EPS insulation, optimal airtightness. Maximum comfort, minimum bills.</span>
-        <span data-lang="pt">Vidro triplo, isolamento EPS 200mm, estanquidade ao ar ótima. Conforto máximo, consumos mínimos.</span>
+        <span data-lang="fr">Triple vitrage, EPS 200mm, étanchéité totale. Moins de factures, plus de confort — une enveloppe thermique pensée pour durer.</span>
+        <span data-lang="en">Triple glazing, 200mm EPS, total airtightness. Lower bills, higher comfort — a thermal envelope built to last.</span>
+        <span data-lang="pt">Vidro triplo, EPS 200mm, estanquidade total. Menos consumo, mais conforto — uma envolvente térmica feita para durar.</span>
       </div>
     </div>
   </div>
@@ -464,14 +464,14 @@
       <div class="approach-icon">◈</div>
       <div>
         <div class="approach-item-title">
-          <span data-lang="fr">Approvisionnement européen direct</span>
-          <span data-lang="en">Direct European sourcing</span>
-          <span data-lang="pt">Aprovisionamento europeu direto</span>
+          <span data-lang="fr">On source mieux</span>
+          <span data-lang="en">We source smarter</span>
+          <span data-lang="pt">Sourcing mais inteligente</span>
         </div>
         <div class="approach-item-desc">
-          <span data-lang="fr">Matériaux sourcés directement auprès des fabricants en Pologne, Portugal et France — qualité maximale, coût optimisé.</span>
-          <span data-lang="en">Materials sourced directly from manufacturers in Poland, Portugal and France — maximum quality, optimised cost.</span>
-          <span data-lang="pt">Materiais fornecidos diretamente pelos fabricantes na Polónia, Portugal e França — qualidade máxima, custo otimizado.</span>
+          <span data-lang="fr">Fabricants en direct — Pologne, Portugal, France. Pas d'intermédiaires : la qualité reste, les marges disparaissent.</span>
+          <span data-lang="en">Direct from manufacturers — Poland, Portugal, France. No middlemen: quality stays, margins go.</span>
+          <span data-lang="pt">Direto dos fabricantes — Polónia, Portugal, França. Sem intermediários: a qualidade fica, as margens desaparecem.</span>
         </div>
       </div>
     </div>
@@ -479,14 +479,14 @@
       <div class="approach-icon">◈</div>
       <div>
         <div class="approach-item-title">
-          <span data-lang="fr">Ingénierie certifiée Eurocode</span>
-          <span data-lang="en">Eurocode certified engineering</span>
-          <span data-lang="pt">Engenharia certificada Eurocode</span>
+          <span data-lang="fr">On calcule, on prouve</span>
+          <span data-lang="en">We calculate, we prove</span>
+          <span data-lang="pt">Calculamos, provamos</span>
         </div>
         <div class="approach-item-desc">
-          <span data-lang="fr">Notes de calcul structure conformes aux Eurocodes, validées par bureau de contrôle agréé COFRAC.</span>
-          <span data-lang="en">Structural calculations compliant with Eurocodes, validated by COFRAC-accredited inspection body.</span>
-          <span data-lang="pt">Cálculos estruturais conformes com os Eurocódigos, validados por organismo de controlo acreditado COFRAC.</span>
+          <span data-lang="fr">Notes de calcul Eurocode, bureau de contrôle agréé COFRAC, plans visés. Rien n'est laissé à l'improvisation.</span>
+          <span data-lang="en">Eurocode structural calculations, COFRAC-accredited inspection body, stamped plans. Nothing left to chance.</span>
+          <span data-lang="pt">Cálculos Eurocode, organismo de controlo acreditado COFRAC, plantas visadas. Nada é deixado ao acaso.</span>
         </div>
       </div>
     </div>
@@ -494,14 +494,14 @@
       <div class="approach-icon">◈</div>
       <div>
         <div class="approach-item-title">
-          <span data-lang="fr">Transparence totale</span>
-          <span data-lang="en">Full transparency</span>
-          <span data-lang="pt">Transparência total</span>
+          <span data-lang="fr">On dit ce qu'on fait</span>
+          <span data-lang="en">We do what we say</span>
+          <span data-lang="pt">Fazemos o que dizemos</span>
         </div>
         <div class="approach-item-desc">
-          <span data-lang="fr">Suivi en temps réel, devis détaillés, aucun coût caché. Vous savez à tout moment où en est votre projet.</span>
-          <span data-lang="en">Real-time updates, detailed quotes, no hidden costs. You always know exactly where your project stands.</span>
-          <span data-lang="pt">Acompanhamento em tempo real, orçamentos detalhados, sem custos ocultos. Sabe sempre onde está o seu projeto.</span>
+          <span data-lang="fr">Devis ligne par ligne, suivi en temps réel, zéro surprise. Vous savez à tout moment où en est votre chantier.</span>
+          <span data-lang="en">Line-by-line quotes, real-time updates, zero surprises. You always know exactly where your site stands.</span>
+          <span data-lang="pt">Orçamentos linha a linha, acompanhamento em tempo real, zero surpresas. Sabe sempre onde está a sua obra.</span>
         </div>
       </div>
     </div>
@@ -509,14 +509,14 @@
       <div class="approach-icon">◈</div>
       <div>
         <div class="approach-item-title">
-          <span data-lang="fr">Garanties complètes</span>
-          <span data-lang="en">Full warranties</span>
-          <span data-lang="pt">Garantias completas</span>
+          <span data-lang="fr">On livre et on reste</span>
+          <span data-lang="en">We deliver and we stay</span>
+          <span data-lang="pt">Entregamos e ficamos</span>
         </div>
         <div class="approach-item-desc">
-          <span data-lang="fr">Assurance décennale, dommages-ouvrage, responsabilité civile chantier. Votre investissement est protégé.</span>
-          <span data-lang="en">Decennial insurance, damage guarantee, site civil liability. Your investment is protected.</span>
-          <span data-lang="pt">Seguro decenal, garantia de danos, responsabilidade civil de obra. O seu investimento está protegido.</span>
+          <span data-lang="fr">Remise des clés, puis suivi post-livraison. La décennale n'est pas une promesse — c'est un engagement contractuel.</span>
+          <span data-lang="en">Key handover, then post-delivery follow-up. The decennial warranty isn't a promise — it's a legal commitment.</span>
+          <span data-lang="pt">Entrega das chaves, depois acompanhamento pós-entrega. A garantia decenal não é uma promessa — é um compromisso contratual.</span>
         </div>
       </div>
     </div>

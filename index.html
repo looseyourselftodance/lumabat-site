@@ -146,15 +146,17 @@
     { label: '11 — Le Retour',             body: 'De retour au point de départ — la piscine, au crépuscule.' },
   ];
 
-  // Source footage is stored at 8fps. A "burst" always plays that many
-  // seconds of footage at its natural pace — never faster, never slower —
-  // no matter how fast the scroll gesture that triggered it was.
+  // Source footage is stored at 8fps. Once triggered, a checkpoint always
+  // plays itself out at its own natural real-time pace (distance/SOURCE_FPS)
+  // — never faster, never slower, no matter how fast the scroll was.
+  // `cp.scale` (from the SUS cost above) stretches or compresses that pace:
+  // scale < 1 (costly/lingering) plays slower, scale > 1 plays faster.
   const SOURCE_FPS = 8;
-  const BURST_SECONDS = 2;
-  const BURST_FRAMES = BURST_SECONDS * SOURCE_FPS; // 16 frames per burst at neutral checkpoint scale
 
-  // How much accumulated scroll (px) is needed to fire one burst — tuned to
-  // roughly "two or three normal wheel notches."
+  // How much accumulated scroll (px) is needed to trigger a checkpoint —
+  // "one good scroll" — tuned to roughly two or three normal wheel notches.
+  // Once triggered, it plays all the way to the next checkpoint with no
+  // further input needed.
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   // If no scroll/touch event arrives for this long, we're no longer
@@ -234,15 +236,12 @@
   // ── Trigger-and-play engine ──
   // The page opens paused on frame 0 — a film waiting to be played. Scroll
   // input never moves the playhead directly; it just accumulates. Once
-  // enough has accumulated (TRIGGER_THRESHOLD), it fires a "burst": a fixed
-  // chunk of footage that plays itself out at its own natural pace over
-  // BURST_SECONDS, however fast or slow the triggering scroll was. Keep
-  // scrolling and finished bursts chain into the next one; stop scrolling
-  // and no new burst starts once the current one finishes.
-  //
-  // Bursts never cross a checkpoint boundary — arriving exactly at one
-  // pauses the engine and shows that checkpoint's caption. Any scroll
-  // dismisses it (nudging one frame in that direction) and resumes.
+  // enough has accumulated (TRIGGER_THRESHOLD — "one good scroll"), it
+  // commits: plays straight through to the end of the current checkpoint at
+  // natural pace, with no further input required and nothing able to
+  // interrupt it partway. Arriving at the boundary pauses the engine and
+  // shows that checkpoint's caption; any scroll dismisses it (nudging one
+  // frame in that direction) and resumes, ready for the next trigger.
   let accumulator = 0;
   let pendingSign = 0;
   let lastInputTime = 0;
@@ -280,16 +279,17 @@
     maybeStartBurst(now);
   }
 
+  // One good scroll (TRIGGER_THRESHOLD) commits to playing the *entire*
+  // rest of the current checkpoint in one continuous motion, straight to
+  // its boundary — no further input needed, and nothing can interrupt it
+  // partway through.
   function maybeStartBurst(now) {
     if (burst || paused || accumulator < TRIGGER_THRESHOLD || pendingSign === 0) return;
-    accumulator -= TRIGGER_THRESHOLD;
+    accumulator = 0;
     const cp = checkpointAt(displayPos);
-    const frames = BURST_FRAMES * cp.scale;
-    const to = pendingSign > 0
-      ? clamp(displayPos + frames, 0, cp.end)
-      : clamp(displayPos - frames, cp.start, totalFrames - 1);
+    const to = pendingSign > 0 ? cp.end : cp.start;
     const distance = Math.abs(to - displayPos);
-    const duration = Math.max((distance / SOURCE_FPS) * 1000, 50); // ms, natural playback pace
+    const duration = Math.max((distance / SOURCE_FPS / cp.scale) * 1000, 50); // ms, natural pace (scaled per checkpoint)
     burst = { from: displayPos, to, start: now, duration };
   }
 
@@ -303,8 +303,6 @@
         const cp = checkpointAt(displayPos);
         if (displayPos === cp.end || displayPos === cp.start) {
           enterPause(checkpoints.indexOf(cp));
-        } else if (now - lastInputTime < IDLE_MS) {
-          maybeStartBurst(now);
         }
       }
     } else if (!paused && now - lastInputTime > IDLE_MS) {

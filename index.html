@@ -123,24 +123,26 @@
   // have to sit on clip boundaries — a burst can span multiple clips in one
   // continuous motion, switching the active <video> seamlessly as it goes.
 
-  // FILM_SPEED is applied to every clip except the short 1s connector
-  // clips (04, 06, 10), which already read as quick beats and would feel
-  // instant/jarring if sped up further.
-  const FILM_SPEED = 3.2;
   const CLIPS = [
-    { file: 'videos/01.mp4', duration: 10, speed: FILM_SPEED },
-    { file: 'videos/02.mp4', duration: 20, speed: FILM_SPEED },
-    { file: 'videos/03.mp4', duration: 20, speed: FILM_SPEED },
-    { file: 'videos/04.mp4', duration: 1,  speed: 1 },
-    { file: 'videos/05.mp4', duration: 20, speed: FILM_SPEED },
-    { file: 'videos/06.mp4', duration: 1,  speed: 1 },
-    { file: 'videos/07.mp4', duration: 8,  speed: FILM_SPEED },
-    { file: 'videos/08.mp4', duration: 8,  speed: FILM_SPEED },
-    { file: 'videos/09.mp4', duration: 10, speed: FILM_SPEED },
-    { file: 'videos/10.mp4', duration: 1,  speed: 1 },
-    { file: 'videos/11.mp4', duration: 15, speed: FILM_SPEED },
+    { file: 'videos/01.mp4', duration: 10 },
+    { file: 'videos/02.mp4', duration: 20 },
+    { file: 'videos/03.mp4', duration: 20 },
+    { file: 'videos/04.mp4', duration: 1 },
+    { file: 'videos/05.mp4', duration: 20 },
+    { file: 'videos/06.mp4', duration: 1 },
+    { file: 'videos/07.mp4', duration: 8 },
+    { file: 'videos/08.mp4', duration: 8 },
+    { file: 'videos/09.mp4', duration: 10 },
+    { file: 'videos/10.mp4', duration: 1 },
+    { file: 'videos/11.mp4', duration: 15 },
   ];
   const TOTAL_DURATION = CLIPS.reduce((s, c) => s + c.duration, 0);
+
+  // Every checkpoint-to-checkpoint segment takes exactly this many real
+  // seconds, no matter how much footage it covers — a short 1s connector
+  // clip plays in slow motion, a 30s segment plays back very fast, both
+  // land on the next checkpoint at the same pace.
+  const SEGMENT_SECONDS = 3;
 
   // Curated checkpoints (clip index is 0-based: clip 0 = videos/01.mp4).
   // `label`/`body` = placeholder caption (null = no pause, just a waypoint).
@@ -157,6 +159,19 @@
     { clip: 7,  time: 6.0,  auto: true },                                                            // 8 — plays 3s→6s of clip 8, then auto-advances, no pause
     { clip: 10, time: 15,   label: '07 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
   ];
+
+  // Precompute how much footage (seconds) each checkpoint-to-checkpoint
+  // segment covers, so playbackRate can be derived to fit it into
+  // SEGMENT_SECONDS regardless of direction.
+  function timelinePos(cp) { return elapsedBefore(cp.clip) + cp.time; }
+  const SEGMENT_DURATIONS = [];
+  for (let i = 0; i < CHECKPOINTS.length - 1; i++) {
+    SEGMENT_DURATIONS.push(timelinePos(CHECKPOINTS[i + 1]) - timelinePos(CHECKPOINTS[i]));
+  }
+  function burstRate(fromIdx, toIdx) {
+    const seg = Math.min(fromIdx, toIdx);
+    return clamp(SEGMENT_DURATIONS[seg] / SEGMENT_SECONDS, 0.0625, 16);
+  }
 
   // How much accumulated scroll (px) is needed to trigger a checkpoint —
   // "one good scroll" — tuned to roughly two or three normal wheel notches.
@@ -262,7 +277,7 @@
     const targetCPIndex = restingCPIndex + pendingSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
     accumulator = 0;
-    burst = { targetCPIndex, sign: pendingSign, playing: false };
+    burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function arriveAt(cpIndex, sign) {
@@ -271,7 +286,9 @@
     const cp = CHECKPOINTS[cpIndex];
     if (cp.auto) {
       const nextIdx = cpIndex + sign;
-      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) burst = { targetCPIndex: nextIdx, sign, playing: false };
+      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
+        burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
+      }
     } else {
       enterPause(cpIndex);
     }
@@ -291,13 +308,13 @@
       if (burst.sign > 0) {
         if (!burst.playing) {
           vid.currentTime = videoTime;
-          vid.playbackRate = CLIPS[activeIndex].speed;
+          vid.playbackRate = burst.rate;
           vid.play().catch(() => {});
           burst.playing = true;
         }
         videoTime = vid.currentTime;
       } else {
-        videoTime = clamp(videoTime - dt * REVERSE_RATE * CLIPS[activeIndex].speed, 0, clipDuration(activeIndex));
+        videoTime = clamp(videoTime - dt * REVERSE_RATE * burst.rate, 0, clipDuration(activeIndex));
         vid.currentTime = videoTime;
       }
 

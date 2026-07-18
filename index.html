@@ -10,257 +10,177 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --white:     #F8F7F4;
-      --anthracite:#2C2C2C;
-      --dark:      #1A1A1A;
-      --beige:     #E8E0D0;
-      --bronze:    #A0845C;
+      --dark: #1A1A1A;
       --bronze-light: #C4A882;
-      --text-light:#6B6B6B;
     }
 
-    html { scroll-behavior: smooth; }
-
-    body {
-      background: var(--dark);
-      overflow-x: hidden;
-    }
-
-    /* ── STORY (scroll-scrubbed frame sequence) ── */
-    .story { background: var(--dark); }
-    .story-item {
-      position: relative;
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
       background: var(--dark);
     }
-    .story-pin {
-      position: sticky; top: 0;
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
       height: 100vh;
       overflow: hidden;
+      touch-action: none;
     }
-    .story-canvas {
+    #scrubCanvas {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      filter: brightness(0.88);
+      filter: brightness(0.9);
       opacity: 0;
-      transition: opacity 0.5s ease;
+      transition: opacity 0.6s ease;
     }
-    .story-pin.ready .story-canvas { opacity: 1; }
-    .story-pin::after {
-      content: '';
-      position: absolute; inset: 0;
-      background: linear-gradient(180deg, rgba(26,26,26,0.25) 0%, rgba(26,26,26,0) 30%, rgba(26,26,26,0) 70%, rgba(26,26,26,0.35) 100%);
-      pointer-events: none;
+    #stage.ready #scrubCanvas { opacity: 1; }
+
+    .progress-track {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      height: 2px; background: rgba(248,247,244,0.12);
+      z-index: 50;
     }
-    .story-count {
-      position: absolute; left: 5%; bottom: 2.5rem; z-index: 2;
+    .progress-fill {
+      height: 100%; width: 0%;
+      background: var(--bronze-light);
+    }
+
+    .loading-label {
+      position: fixed; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 40;
       font-family: sans-serif;
-      font-size: 0.72rem; font-weight: 500; letter-spacing: 0.25em;
-      text-transform: uppercase; color: rgba(248,247,244,0.7);
-      display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.72rem; letter-spacing: 0.25em; text-transform: uppercase;
+      color: rgba(248,247,244,0.55);
+      transition: opacity 0.4s ease;
     }
-    .story-count .bronze { color: var(--bronze-light); }
-    .story-count .bar {
-      width: 2.5rem; height: 1px; background: rgba(248,247,244,0.3);
-    }
-    .story-dots {
-      position: fixed; right: 4%; top: 50%; transform: translateY(-50%);
-      z-index: 50; display: flex; flex-direction: column; gap: 0.55rem;
-      opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
-    }
-    .story-dots.visible { opacity: 1; }
-    .story-dots .dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: rgba(248,247,244,0.3);
-      transition: background 0.3s, transform 0.3s;
-    }
-    .story-dots .dot.active { background: var(--bronze-light); transform: scale(1.6); }
   </style>
 </head>
 <body>
 
-<!-- STORY (scroll-scrubbed frame sequence, 1px scroll = 1 frame) -->
-<section class="story" id="story">
-  <div class="story-item" data-count="80" data-folder="videos/frames/01/" style="height: calc(100vh + 80px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">01</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="160" data-folder="videos/frames/02/" style="height: calc(100vh + 160px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">02</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="160" data-folder="videos/frames/03/" style="height: calc(100vh + 160px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">03</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="8" data-folder="videos/frames/04/" style="height: calc(100vh + 8px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">04</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="160" data-folder="videos/frames/05/" style="height: calc(100vh + 160px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">05</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="8" data-folder="videos/frames/06/" style="height: calc(100vh + 8px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">06</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="64" data-folder="videos/frames/07/" style="height: calc(100vh + 64px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">07</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="64" data-folder="videos/frames/08/" style="height: calc(100vh + 64px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">08</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="80" data-folder="videos/frames/09/" style="height: calc(100vh + 80px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">09</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="8" data-folder="videos/frames/10/" style="height: calc(100vh + 8px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">10</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-  <div class="story-item" data-count="120" data-folder="videos/frames/11/" style="height: calc(100vh + 120px)">
-    <div class="story-pin">
-      <canvas class="story-canvas"></canvas>
-      <div class="story-count"><span class="bronze">11</span><span class="bar"></span><span>11</span></div>
-    </div>
-  </div>
-</section>
-<div class="story-dots" id="storyDots"></div>
+<div id="stage">
+  <canvas id="scrubCanvas"></canvas>
+</div>
+<div class="loading-label" id="loadingLabel">Loading…</div>
+<div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 
 <script>
-  // ── STORY scroll-scrubbed frame sequence ──
-  // 1px of scroll = 1 frame, forward on scroll down, backward on scroll up.
-  (function () {
-    const items = Array.from(document.querySelectorAll('.story-item'));
-    if (!items.length) return;
+  // ── Unified scroll-scrubbed sequence ──
+  // The page itself never scrolls (fixed, full-viewport). Wheel / touch input
+  // moves a virtual position through ONE merged sequence built from all 11 clips.
+  // Scroll down / swipe up = forward. Scroll up / swipe down = backward.
 
-    const dotsWrap = document.getElementById('storyDots');
-    items.forEach((_, i) => {
-      const d = document.createElement('div');
-      d.className = 'dot' + (i === 0 ? ' active' : '');
-      dotsWrap.appendChild(d);
-    });
-    const dots = Array.from(dotsWrap.children);
+  const VIDEO_FRAMES = [
+    { folder: 'videos/frames/01/', count: 80 },
+    { folder: 'videos/frames/02/', count: 160 },
+    { folder: 'videos/frames/03/', count: 160 },
+    { folder: 'videos/frames/04/', count: 8 },
+    { folder: 'videos/frames/05/', count: 160 },
+    { folder: 'videos/frames/06/', count: 8 },
+    { folder: 'videos/frames/07/', count: 64 },
+    { folder: 'videos/frames/08/', count: 64 },
+    { folder: 'videos/frames/09/', count: 80 },
+    { folder: 'videos/frames/10/', count: 8 },
+    { folder: 'videos/frames/11/', count: 120 },
+  ];
 
-    class Scrubber {
-      constructor(item) {
-        this.item = item;
-        this.pin = item.querySelector('.story-pin');
-        this.canvas = item.querySelector('.story-canvas');
-        this.ctx = this.canvas.getContext('2d');
-        this.count = parseInt(item.getAttribute('data-count'), 10);
-        this.folder = item.getAttribute('data-folder');
-        this.images = new Array(this.count);
-        this.currentIndex = -1;
-        this.ready = false;
-        this.preloading = false;
-      }
-      frameUrl(i) {
-        return this.folder + String(i + 1).padStart(4, '0') + '.jpg';
-      }
-      preload() {
-        if (this.preloading) return;
-        this.preloading = true;
-        for (let i = 0; i < this.count; i++) {
-          const img = new Image();
-          if (i === 0) {
-            img.onload = () => {
-              this.canvas.width = img.naturalWidth;
-              this.canvas.height = img.naturalHeight;
-              this.ready = true;
-              this.pin.classList.add('ready');
-              this.draw(Math.max(this.currentIndex, 0));
-            };
-          }
-          img.src = this.frameUrl(i);
-          this.images[i] = img;
-        }
-      }
-      draw(index) {
-        index = Math.max(0, Math.min(this.count - 1, index));
-        if (!this.ready) { this.currentIndex = index; return; }
-        if (index === this.currentIndex) return;
-        const img = this.images[index];
-        if (img && img.complete && img.naturalWidth) {
-          this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
-          this.currentIndex = index;
-        }
-      }
-      updateFromScroll() {
-        const rect = this.item.getBoundingClientRect();
-        const framePx = -rect.top; // 0 at section entry, grows 1:1 with scroll depth
-        if (framePx < -window.innerHeight || framePx > this.count + window.innerHeight) return;
-        this.draw(Math.round(framePx));
-      }
+  // How many px of wheel delta it takes to advance one frame.
+  // Lower = faster/twitchier, higher = slower/more cinematic.
+  const SENSITIVITY = 0.4;
+  const TOUCH_MULTIPLIER = 2.2;
+
+  const frameUrls = [];
+  VIDEO_FRAMES.forEach((v) => {
+    for (let i = 1; i <= v.count; i++) {
+      frameUrls.push(v.folder + String(i).padStart(4, '0') + '.jpg');
     }
+  });
+  const totalFrames = frameUrls.length;
 
-    const scrubbers = items.map((item) => new Scrubber(item));
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('scrubCanvas');
+  const ctx = canvas.getContext('2d');
+  const loadingLabel = document.getElementById('loadingLabel');
+  const progressFill = document.getElementById('progressFill');
 
-    const preloadObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          const idx = items.indexOf(entry.target);
-          scrubbers[idx].preload();
-          preloadObserver.unobserve(entry.target);
-        }
-      });
-    }, { rootMargin: '100% 0px 100% 0px' });
+  const images = new Array(totalFrames);
+  let loadedCount = 0;
+  let firstFrameReady = false;
 
-    const dotsObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const idx = items.indexOf(entry.target);
-        if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
-          dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-        }
-      });
-    }, { threshold: [0, 0.5, 1] });
+  frameUrls.forEach((url, i) => {
+    const img = new Image();
+    img.onload = () => {
+      loadedCount++;
+      if (i === 0) {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        firstFrameReady = true;
+        stage.classList.add('ready');
+        loadingLabel.style.opacity = '0';
+        renderFrame(0);
+      }
+    };
+    img.src = url;
+    images[i] = img;
+  });
 
-    items.forEach((item) => {
-      preloadObserver.observe(item);
-      dotsObserver.observe(item);
-    });
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-    const storySection = document.getElementById('story');
-    const dotsVisibility = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => dotsWrap.classList.toggle('visible', entry.isIntersecting));
-    }, { threshold: 0 });
-    dotsVisibility.observe(storySection);
+  let virtualPos = 0;
+  let currentDrawn = -1;
+  let renderScheduled = false;
 
-    let ticking = false;
-    function onScroll() {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        scrubbers.forEach((s) => s.updateFromScroll());
-        ticking = false;
-      });
+  function applyDelta(deltaFrames) {
+    virtualPos = clamp(virtualPos + deltaFrames, 0, totalFrames - 1);
+    requestRender();
+  }
+
+  function requestRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(() => renderFrame(Math.round(virtualPos)));
+  }
+
+  function renderFrame(idx) {
+    renderScheduled = false;
+    if (!firstFrameReady) return;
+    if (idx === currentDrawn) return;
+    const img = images[idx];
+    if (img && img.complete && img.naturalWidth) {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      currentDrawn = idx;
+      progressFill.style.width = ((idx + 1) / totalFrames * 100) + '%';
+    } else {
+      requestRender();
     }
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-  })();
+  }
+
+  window.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    applyDelta(e.deltaY * SENSITIVITY);
+  }, { passive: false });
+
+  let touchStartY = null;
+  window.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  window.addEventListener('touchmove', (e) => {
+    if (touchStartY === null) return;
+    const y = e.touches[0].clientY;
+    const delta = touchStartY - y;
+    touchStartY = y;
+    e.preventDefault();
+    applyDelta(delta * TOUCH_MULTIPLIER * SENSITIVITY);
+  }, { passive: false });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') applyDelta(40 * SENSITIVITY);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') applyDelta(-40 * SENSITIVITY);
+  });
 </script>
 
 </body>

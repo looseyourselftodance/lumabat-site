@@ -94,24 +94,21 @@
     { folder: 'videos/frames/11/', count: 120, cost: 120 },
   ];
 
-  // Governed speed band, in frames/sec. Motion never exceeds MAX_SPEED no
-  // matter how hard you scroll, and never drops below MIN_SPEED as long as
-  // there's active input — scroll intensity only picks where in this band
-  // we sit, it never scales speed proportionally beyond it.
-  const MIN_SPEED = 3;
-  const MAX_SPEED = 14;
-  // Converts a raw px-per-second input rate into a frames/sec magnitude,
-  // before it gets clamped into [MIN_SPEED, MAX_SPEED].
-  const INPUT_TO_SPEED = 0.05;
+  // Source footage is stored at 8fps. A "burst" always plays that many
+  // seconds of footage at its natural pace — never faster, never slower —
+  // no matter how fast the scroll gesture that triggered it was.
+  const SOURCE_FPS = 8;
+  const BURST_SECONDS = 2;
+  const BURST_FRAMES = BURST_SECONDS * SOURCE_FPS; // 16 frames per burst at neutral checkpoint scale
+
+  // How much accumulated scroll (px) is needed to fire one burst — tuned to
+  // roughly "two or three normal wheel notches."
+  const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
-  // How much smoothing is applied to the input-intensity signal itself
-  // (separate from position smoothing) — avoids single noisy events
-  // yanking the speed around.
-  const EMA_ALPHA = 0.4;
-  // If no scroll/touch event arrives for this long, we're considered idle
-  // and start decelerating to a stop instead of coasting indefinitely.
-  const IDLE_MS = 140;
-  const DECAY = 0.85;
+  // If no scroll/touch event arrives for this long, we're no longer
+  // "actively scrolling" — the current burst (if any) still finishes, but
+  // no new one chains after it, and any leftover accumulator clears.
+  const IDLE_MS = 150;
 
   const frameUrls = [];
   const checkpoints = [];
@@ -182,46 +179,51 @@
     progressFill.style.width = ((pos + 1) / totalFrames * 100) + '%';
   }
 
-  // ── Governed-speed input engine ──
-  // Scroll/touch/keyboard events don't move the playhead directly — they
-  // feed a smoothed "how hard are you scrolling" signal (inputMagnitude).
-  // Every animation frame, that signal (clamped into the speed band, scaled
-  // per-checkpoint) is integrated into position. No queued distance, no
-  // proportional jumps — just a governed rate that scroll turns on/off.
-  let inputMagnitude = 0;
-  let inputSign = 0;
-  let lastEventTime = null;
+  // ── Trigger-and-play engine ──
+  // The page opens paused on frame 0 — a film waiting to be played. Scroll
+  // input never moves the playhead directly; it just accumulates. Once
+  // enough has accumulated (TRIGGER_THRESHOLD), it fires a "burst": a fixed
+  // chunk of footage that plays itself out at its own natural pace over
+  // BURST_SECONDS, however fast or slow the triggering scroll was. Keep
+  // scrolling and finished bursts chain into the next one; stop scrolling
+  // and no new burst starts once the current one finishes.
+  let accumulator = 0;
+  let pendingSign = 0;
   let lastInputTime = 0;
-  let lastTickTime = null;
+  let burst = null; // { from, to, start, duration } while a burst is animating
 
   function registerInput(deltaPxLike, now) {
-    if (lastEventTime != null) {
-      const dt = clamp((now - lastEventTime) / 1000, 0.01, 0.5);
-      const instantRate = Math.abs(deltaPxLike) * INPUT_TO_SPEED / dt;
-      inputMagnitude += (instantRate - inputMagnitude) * EMA_ALPHA;
-    } else {
-      inputMagnitude = Math.abs(deltaPxLike) * INPUT_TO_SPEED;
-    }
-    lastEventTime = now;
+    if (deltaPxLike === 0) return;
+    const sign = Math.sign(deltaPxLike);
+    if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0; // direction reversed before firing
+    pendingSign = sign;
+    accumulator += Math.abs(deltaPxLike);
     lastInputTime = now;
-    if (deltaPxLike !== 0) inputSign = Math.sign(deltaPxLike);
+    maybeStartBurst(now);
+  }
+
+  function maybeStartBurst(now) {
+    if (burst || accumulator < TRIGGER_THRESHOLD || pendingSign === 0) return;
+    accumulator -= TRIGGER_THRESHOLD;
+    const cp = checkpointAt(displayPos);
+    const frames = BURST_FRAMES * cp.scale;
+    const to = clamp(displayPos + pendingSign * frames, 0, totalFrames - 1);
+    const distance = Math.abs(to - displayPos);
+    const duration = Math.max((distance / SOURCE_FPS) * 1000, 50); // ms, natural playback pace
+    burst = { from: displayPos, to, start: now, duration };
   }
 
   function tick(now) {
-    if (lastTickTime == null) lastTickTime = now;
-    const dtTick = clamp((now - lastTickTime) / 1000, 0, 0.1);
-    lastTickTime = now;
-
-    if (now - lastInputTime > IDLE_MS) {
-      inputMagnitude *= DECAY;
-      if (inputMagnitude < 0.01) { inputMagnitude = 0; inputSign = 0; }
-    }
-
-    if (inputMagnitude > 0 && inputSign !== 0) {
-      const cp = checkpointAt(displayPos);
-      const speed = clamp(inputMagnitude, MIN_SPEED, MAX_SPEED) * cp.scale;
-      displayPos = clamp(displayPos + inputSign * speed * dtTick, 0, totalFrames - 1);
-      if (displayPos === 0 || displayPos === totalFrames - 1) { inputMagnitude = 0; inputSign = 0; }
+    if (burst) {
+      const t = clamp((now - burst.start) / burst.duration, 0, 1);
+      displayPos = burst.from + (burst.to - burst.from) * t;
+      if (t >= 1) {
+        displayPos = burst.to;
+        burst = null;
+        if (now - lastInputTime < IDLE_MS) maybeStartBurst(now);
+      }
+    } else if (now - lastInputTime > IDLE_MS) {
+      accumulator = 0; // stale leftover from a scroll that trailed off — don't fire it later
     }
 
     renderAtPosition(displayPos);

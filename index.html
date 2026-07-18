@@ -129,25 +129,27 @@
       line-height: 1;
     }
 
-    /* ── STORY (scroll video) ── */
+    /* ── STORY (scroll-scrubbed frame sequence) ── */
     .story { padding: 0; background: var(--dark); }
     .story-item {
       position: relative;
-      height: 100vh;
-      overflow: hidden;
       background: var(--dark);
     }
-    .story-video {
+    .story-pin {
+      position: sticky; top: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .story-canvas {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      opacity: 0;
       filter: brightness(0.88);
-      transition: opacity 1s ease, transform 1.2s ease;
-      transform: scale(1.04);
+      opacity: 0;
+      transition: opacity 0.5s ease;
     }
-    .story-item.active .story-video { opacity: 1; transform: scale(1); }
-    .story-item::after {
+    .story-pin.ready .story-canvas { opacity: 1; }
+    .story-pin::after {
       content: '';
       position: absolute; inset: 0;
       background: linear-gradient(180deg, rgba(26,26,26,0.25) 0%, rgba(26,26,26,0) 30%, rgba(26,26,26,0) 70%, rgba(26,26,26,0.35) 100%);
@@ -382,51 +384,73 @@
   <div class="hero-deco"></div>
 </section>
 
-<!-- STORY (scroll video) -->
+<!-- STORY (scroll-scrubbed frame sequence, 1px scroll = 1 frame) -->
 <section class="story" id="story">
-  <div class="story-item" data-src="videos/01.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">01</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="80" data-folder="videos/frames/01/" style="height: calc(100vh + 80px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">01</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/02.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">02</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="160" data-folder="videos/frames/02/" style="height: calc(100vh + 160px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">02</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/03.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">03</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="160" data-folder="videos/frames/03/" style="height: calc(100vh + 160px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">03</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/04.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">04</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="8" data-folder="videos/frames/04/" style="height: calc(100vh + 8px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">04</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/05.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">05</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="160" data-folder="videos/frames/05/" style="height: calc(100vh + 160px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">05</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/06.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">06</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="8" data-folder="videos/frames/06/" style="height: calc(100vh + 8px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">06</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/07.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">07</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="64" data-folder="videos/frames/07/" style="height: calc(100vh + 64px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">07</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/08.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">08</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="64" data-folder="videos/frames/08/" style="height: calc(100vh + 64px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">08</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/09.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">09</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="80" data-folder="videos/frames/09/" style="height: calc(100vh + 80px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">09</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/10.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">10</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="8" data-folder="videos/frames/10/" style="height: calc(100vh + 8px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">10</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
-  <div class="story-item" data-src="videos/11.mp4">
-    <video class="story-video" muted loop playsinline preload="none"></video>
-    <div class="story-count"><span class="bronze">11</span><span class="bar"></span><span>11</span></div>
+  <div class="story-item" data-count="120" data-folder="videos/frames/11/" style="height: calc(100vh + 120px)">
+    <div class="story-pin">
+      <canvas class="story-canvas"></canvas>
+      <div class="story-count"><span class="bronze">11</span><span class="bar"></span><span>11</span></div>
+    </div>
   </div>
 </section>
 <div class="story-dots" id="storyDots"></div>
@@ -668,7 +692,8 @@
   // Init
   setLang('fr');
 
-  // ── STORY scroll video ──
+  // ── STORY scroll-scrubbed frame sequence ──
+  // 1px of scroll = 1 frame, forward on scroll down, backward on scroll up.
   (function () {
     const items = Array.from(document.querySelectorAll('.story-item'));
     if (!items.length) return;
@@ -681,39 +706,82 @@
     });
     const dots = Array.from(dotsWrap.children);
 
-    // Preload the video source shortly before each section is reached
+    class Scrubber {
+      constructor(item) {
+        this.item = item;
+        this.pin = item.querySelector('.story-pin');
+        this.canvas = item.querySelector('.story-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.count = parseInt(item.getAttribute('data-count'), 10);
+        this.folder = item.getAttribute('data-folder');
+        this.images = new Array(this.count);
+        this.currentIndex = -1;
+        this.ready = false;
+        this.preloading = false;
+      }
+      frameUrl(i) {
+        return this.folder + String(i + 1).padStart(4, '0') + '.jpg';
+      }
+      preload() {
+        if (this.preloading) return;
+        this.preloading = true;
+        for (let i = 0; i < this.count; i++) {
+          const img = new Image();
+          if (i === 0) {
+            img.onload = () => {
+              this.canvas.width = img.naturalWidth;
+              this.canvas.height = img.naturalHeight;
+              this.ready = true;
+              this.pin.classList.add('ready');
+              this.draw(Math.max(this.currentIndex, 0));
+            };
+          }
+          img.src = this.frameUrl(i);
+          this.images[i] = img;
+        }
+      }
+      draw(index) {
+        index = Math.max(0, Math.min(this.count - 1, index));
+        if (!this.ready) { this.currentIndex = index; return; }
+        if (index === this.currentIndex) return;
+        const img = this.images[index];
+        if (img && img.complete && img.naturalWidth) {
+          this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+          this.currentIndex = index;
+        }
+      }
+      updateFromScroll() {
+        const rect = this.item.getBoundingClientRect();
+        const framePx = -rect.top; // 0 at section entry, grows 1:1 with scroll depth
+        if (framePx < -window.innerHeight || framePx > this.count + window.innerHeight) return;
+        this.draw(Math.round(framePx));
+      }
+    }
+
+    const scrubbers = items.map((item) => new Scrubber(item));
+
     const preloadObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          const item = entry.target;
-          const video = item.querySelector('.story-video');
-          if (!video.src) video.src = item.getAttribute('data-src');
-          preloadObserver.unobserve(item);
+          const idx = items.indexOf(entry.target);
+          scrubbers[idx].preload();
+          preloadObserver.unobserve(entry.target);
         }
       });
     }, { rootMargin: '100% 0px 100% 0px' });
 
-    // Play/pause + fade + dots based on visibility
-    const activeObserver = new IntersectionObserver((entries) => {
+    const dotsObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
-        const item = entry.target;
-        const video = item.querySelector('.story-video');
-        const idx = items.indexOf(item);
+        const idx = items.indexOf(entry.target);
         if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
-          item.classList.add('active');
-          if (video.src) video.play().catch(() => {});
           dots.forEach((d, i) => d.classList.toggle('active', i === idx));
-          dotsWrap.classList.add('visible');
-        } else {
-          item.classList.remove('active');
-          video.pause();
         }
       });
     }, { threshold: [0, 0.5, 1] });
 
     items.forEach((item) => {
       preloadObserver.observe(item);
-      activeObserver.observe(item);
+      dotsObserver.observe(item);
     });
 
     const storySection = document.getElementById('story');
@@ -721,6 +789,18 @@
       entries.forEach((entry) => dotsWrap.classList.toggle('visible', entry.isIntersecting));
     }, { threshold: 0 });
     dotsVisibility.observe(storySection);
+
+    let ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        scrubbers.forEach((s) => s.updateFromScroll());
+        ticking = false;
+      });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
   })();
 </script>
 

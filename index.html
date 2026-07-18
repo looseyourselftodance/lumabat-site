@@ -115,71 +115,59 @@
 </div>
 
 <script>
-  // ── Real-video trigger-and-play engine ──
-  // The page opens paused on clip 1's first frame — a film waiting to be
-  // played. Scroll input never moves anything directly; it just
-  // accumulates. Once enough has accumulated (TRIGGER_THRESHOLD — "one good
-  // scroll"), it commits: plays straight through to the end of the current
-  // checkpoint using the browser's own native video playback (true smooth,
-  // matching the source mp4s), with no further input required. Arriving at
-  // a checkpoint boundary pauses the engine and shows that checkpoint's
-  // caption; any scroll dismisses it and moves to the next/previous clip.
-  //
-  // Forward playback uses real video.play() — native decode, native
-  // smoothness. Backward has no browser equivalent (no reverse playback),
-  // so it's driven by rapid seeking instead — smooth in spirit, but seek
-  // performance depends on the browser/clip.
+  // ── Real-video trigger-and-play engine, curated checkpoints ──
+  // The page opens at clip 1's first frame — a film waiting to be played.
+  // Scroll input never moves anything directly; it accumulates, and once
+  // enough has built up ("one good scroll"), it commits to playing straight
+  // through to the next (or previous) checkpoint. Checkpoints no longer
+  // have to sit on clip boundaries — a burst can span multiple clips in one
+  // continuous motion, switching the active <video> seamlessly as it goes.
 
-  // `cost` is the scroll-effort budget in SUS — independent of duration.
-  // Defaults to `duration` (neutral pacing) until real per-scene pacing is
-  // authored later. cost > duration -> plays slower (linger); cost <
-  // duration -> plays faster (breeze through). Applied via playbackRate.
   const CLIPS = [
-    { file: 'videos/01.mp4', duration: 10, cost: 10 },
-    { file: 'videos/02.mp4', duration: 20, cost: 20 },
-    { file: 'videos/03.mp4', duration: 20, cost: 20 },
-    { file: 'videos/04.mp4', duration: 1,  cost: 1 },
-    { file: 'videos/05.mp4', duration: 20, cost: 20 },
-    { file: 'videos/06.mp4', duration: 1,  cost: 1 },
-    { file: 'videos/07.mp4', duration: 8,  cost: 8 },
-    { file: 'videos/08.mp4', duration: 8,  cost: 8 },
-    { file: 'videos/09.mp4', duration: 10, cost: 10 },
-    { file: 'videos/10.mp4', duration: 1,  cost: 1 },
-    { file: 'videos/11.mp4', duration: 15, cost: 15 },
+    { file: 'videos/01.mp4', duration: 10 },
+    { file: 'videos/02.mp4', duration: 20 },
+    { file: 'videos/03.mp4', duration: 20 },
+    { file: 'videos/04.mp4', duration: 1 },
+    { file: 'videos/05.mp4', duration: 20 },
+    { file: 'videos/06.mp4', duration: 1 },
+    { file: 'videos/07.mp4', duration: 8 },
+    { file: 'videos/08.mp4', duration: 8 },
+    { file: 'videos/09.mp4', duration: 10 },
+    { file: 'videos/10.mp4', duration: 1 },
+    { file: 'videos/11.mp4', duration: 15 },
   ];
   const TOTAL_DURATION = CLIPS.reduce((s, c) => s + c.duration, 0);
 
-  // Placeholder captions, one per checkpoint — drafted from what's actually
-  // in each clip. Meant to be replaced/adjusted, not final copy.
-  const CHECKPOINT_TEXT = [
-    { label: '01 — L’Arrivée',        body: 'Une terrasse pensée pour l’heure dorée.' },
-    { label: '02 — La Piscine',       body: 'Là où la cuisine extérieure rencontre l’eau.' },
-    { label: '03 — Le Séjour',        body: 'Ouvert, lumineux, pensé pour se retrouver.' },
-    { label: '04 — La Buanderie',     body: 'Chaque détail compte, jusqu’à la buanderie.' },
-    { label: '05 — Le Garage',        body: 'Stationnement couvert, à deux pas de la cuisine.' },
-    { label: '06 — La Cuisine',       body: 'Là où la maison prend vie.' },
-    { label: '07 — Le Couloir',       body: 'Un passage calme vers la salle de bain.' },
-    { label: '08 — La Salle de Bain', body: 'Douche pluie, lumière naturelle, aucun compromis.' },
-    { label: '09 — La Chambre',       body: 'Le repos, encadré de verre et de verdure.' },
-    { label: '10 — Le Bureau',        body: 'Un coin tranquille pour travailler chez soi.' },
-    { label: '11 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
+  // Curated checkpoints (clip index is 0-based: clip 0 = videos/01.mp4).
+  // `label`/`body` = placeholder caption (null = no pause, just a waypoint).
+  // `auto: true` = on arrival, immediately continue to the next checkpoint
+  // instead of pausing — used for checkpoint 8's mid-clip auto-advance.
+  const CHECKPOINTS = [
+    { clip: 0,  time: 0 },                                                                          // 1 — start, no change
+    { clip: 0,  time: 10,   label: '01 — L’Arrivée',        body: 'Une terrasse pensée pour l’heure dorée.' },
+    { clip: 1,  time: 9.73, label: '02 — La Piscine',       body: 'Là où la cuisine extérieure rencontre l’eau.' },      // sharpest frame near sec 10 of clip 2
+    { clip: 2,  time: 20,   label: '03 — Le Séjour',        body: 'Ouvert, lumineux, pensé pour se retrouver.' },
+    { clip: 4,  time: 0,    label: '04 — Le Garage',        body: 'Stationnement couvert, à deux pas de la cuisine.' },
+    { clip: 6,  time: 0,    label: '05 — La Cuisine',       body: 'Là où la maison prend vie.' },
+    { clip: 7,  time: 4.0,  label: '06 — La Salle de Bain', body: 'Douche pluie, lumière naturelle, aucun compromis.' }, // sharpest frame, clip 8, 3.15–4.15s window
+    { clip: 7,  time: 6.0,  auto: true },                                                            // 8 — plays 3s→6s of clip 8, then auto-advances, no pause
+    { clip: 10, time: 15,   label: '07 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
   ];
 
   // How much accumulated scroll (px) is needed to trigger a checkpoint —
   // "one good scroll" — tuned to roughly two or three normal wheel notches.
-  // Once triggered, it plays all the way to the next checkpoint with no
-  // further input needed.
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
-  // If no scroll/touch event arrives for this long, we're no longer
-  // "actively scrolling" — a leftover accumulator that never reached
-  // threshold gets cleared rather than firing much later.
   const IDLE_MS = 150;
-  // How fast backward seeking steps through the clip, in seconds of
-  // footage per second of real time (scaled by cp.scale on top of this).
+  // Backward has no native reverse-playback API, so it's driven by rapidly
+  // seeking instead — seconds of footage stepped per second of real time.
   const REVERSE_RATE = 1;
+  // How far a dismiss-scroll nudges the playhead before resuming — needs to
+  // cross out of the exact boundary frame, not jump far.
+  const DISMISS_NUDGE = 0.05;
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function clipDuration(i) { return CLIPS[i].duration; }
 
   const stage = document.getElementById('stage');
   const videos = Array.from(document.querySelectorAll('.clip'));
@@ -203,53 +191,49 @@
     for (let i = 0; i < idx; i++) s += CLIPS[i].duration;
     return s;
   }
-
   function updateProgress() {
-    const elapsed = elapsedBefore(activeIndex) + videoTime;
-    progressFill.style.width = (elapsed / TOTAL_DURATION * 100) + '%';
+    progressFill.style.width = ((elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100) + '%';
   }
-
   function setActive(idx) {
     videos.forEach((v, i) => v.classList.toggle('active', i === idx));
   }
 
   let activeIndex = 0;
-  let videoTime = 0; // seconds within the active clip
+  let videoTime = 0;          // seconds within the active clip
+  let restingCPIndex = 0;     // index into CHECKPOINTS we last came to rest at
   let accumulator = 0;
   let pendingSign = 0;
   let lastInputTime = 0;
-  let burst = null; // { target, sign } while a checkpoint is playing through
+  let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
   let lastTickTime = null;
 
-  function enterPause(idx) {
+  function enterPause(cpIndex) {
+    const cp = CHECKPOINTS[cpIndex];
+    if (!cp.label) return; // waypoint with nothing to show — just rest silently
     paused = true;
     accumulator = 0;
-    const t = CHECKPOINT_TEXT[idx];
-    cpLabelEl.textContent = t.label;
-    cpBodyEl.textContent = t.body;
+    cpLabelEl.textContent = cp.label;
+    cpBodyEl.textContent = cp.body;
     checkpointTextEl.classList.add('visible');
-    // Prime whichever clip we might head into next while the caption is up.
-    const next = videos[idx + 1];
-    if (next) next.preload = 'auto';
-    const prev = videos[idx - 1];
-    if (prev) prev.preload = 'auto';
   }
 
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
     checkpointTextEl.classList.remove('visible');
-    if (dismissSign > 0 && activeIndex < CLIPS.length - 1) {
-      activeIndex++;
-      videoTime = 0;
+    const newTime = videoTime + DISMISS_NUDGE * dismissSign;
+    if (newTime > clipDuration(activeIndex) && activeIndex < CLIPS.length - 1) {
+      activeIndex++; videoTime = 0;
       videos[activeIndex].currentTime = 0;
       setActive(activeIndex);
-    } else if (dismissSign < 0 && activeIndex > 0) {
-      activeIndex--;
-      videoTime = CLIPS[activeIndex].duration;
+    } else if (newTime < 0 && activeIndex > 0) {
+      activeIndex--; videoTime = clipDuration(activeIndex);
       videos[activeIndex].currentTime = videoTime;
       setActive(activeIndex);
+    } else {
+      videoTime = clamp(newTime, 0, clipDuration(activeIndex));
+      videos[activeIndex].currentTime = videoTime;
     }
   }
 
@@ -258,26 +242,34 @@
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
     if (paused) { exitPause(sign); return; }
-    if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0; // direction reversed before firing
+    if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0;
     pendingSign = sign;
     accumulator += Math.abs(deltaPxLike);
     maybeStartBurst();
   }
 
+  // One good scroll commits to playing all the way to the next checkpoint —
+  // no further input needed, nothing can interrupt it partway. If there's
+  // no checkpoint further in that direction (e.g. scrolling back from the
+  // very start), this simply does nothing instead of firing a zero-distance
+  // "arrival".
   function maybeStartBurst() {
     if (burst || paused || accumulator < TRIGGER_THRESHOLD || pendingSign === 0) return;
+    const targetCPIndex = restingCPIndex + pendingSign;
+    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
     accumulator = 0;
-    const cp = CLIPS[activeIndex];
-    const vid = videos[activeIndex];
-    const scale = clamp(cp.duration / cp.cost, 0.25, 4);
-    const target = pendingSign > 0 ? cp.duration : 0;
-    burst = { target, sign: pendingSign };
-    if (pendingSign > 0) {
-      vid.currentTime = videoTime;
-      vid.playbackRate = scale;
-      vid.play().catch(() => {});
+    burst = { targetCPIndex, sign: pendingSign, playing: false };
+  }
+
+  function arriveAt(cpIndex, sign) {
+    restingCPIndex = cpIndex;
+    burst = null;
+    const cp = CHECKPOINTS[cpIndex];
+    if (cp.auto) {
+      const nextIdx = cpIndex + sign;
+      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) burst = { targetCPIndex: nextIdx, sign, playing: false };
     } else {
-      vid.pause();
+      enterPause(cpIndex);
     }
   }
 
@@ -287,25 +279,41 @@
     lastTickTime = now;
 
     if (burst) {
-      const cp = CLIPS[activeIndex];
+      const tgt = CHECKPOINTS[burst.targetCPIndex];
+      const atTargetClip = activeIndex === tgt.clip;
+      const subTarget = atTargetClip ? tgt.time : (burst.sign > 0 ? clipDuration(activeIndex) : 0);
       const vid = videos[activeIndex];
-      const scale = clamp(cp.duration / cp.cost, 0.25, 4);
+
       if (burst.sign > 0) {
+        if (!burst.playing) {
+          vid.currentTime = videoTime;
+          vid.playbackRate = 1;
+          vid.play().catch(() => {});
+          burst.playing = true;
+        }
         videoTime = vid.currentTime;
       } else {
-        videoTime = clamp(videoTime - dt * REVERSE_RATE * scale, 0, cp.duration);
+        videoTime = clamp(videoTime - dt * REVERSE_RATE, 0, clipDuration(activeIndex));
         vid.currentTime = videoTime;
       }
+
       const reached = burst.sign > 0
-        ? (videoTime >= burst.target - 0.03 || vid.ended)
-        : videoTime <= burst.target + 0.01;
+        ? (videoTime >= subTarget - 0.03 || vid.ended)
+        : videoTime <= subTarget + 0.01;
+
       if (reached) {
         vid.pause();
-        videoTime = burst.target;
+        videoTime = subTarget;
         vid.currentTime = videoTime;
-        burst = null;
-        if (videoTime === cp.duration || videoTime === 0) {
-          enterPause(activeIndex);
+
+        if (atTargetClip) {
+          arriveAt(burst.targetCPIndex, burst.sign);
+        } else {
+          activeIndex += burst.sign;
+          videoTime = burst.sign > 0 ? 0 : clipDuration(activeIndex);
+          videos[activeIndex].currentTime = videoTime;
+          setActive(activeIndex);
+          burst.playing = false;
         }
       }
     } else if (!paused && now - lastInputTime > IDLE_MS) {

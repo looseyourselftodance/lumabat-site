@@ -93,14 +93,14 @@
   // Tuned so ~3 normal trackpad/wheel scrolls cover roughly that 2 seconds.
   const SENSITIVITY = 0.012;
   const TOUCH_MULTIPLIER = 2.2;
-  // Easing: how fast the displayed frame catches up to the scroll target.
+  // Easing: how fast the displayed position catches up to the scroll target.
   // Lower = smoother/more lag, higher = snappier/more direct.
-  const EASE = 0.12;
+  const EASE = 0.1;
 
   const frameUrls = [];
   VIDEO_FRAMES.forEach((v) => {
     for (let i = 1; i <= v.count; i++) {
-      frameUrls.push(v.folder + String(i).padStart(4, '0') + '.jpg');
+      frameUrls.push(v.folder + String(i).padStart(4, '0') + '.webp');
     }
   });
   const totalFrames = frameUrls.length;
@@ -125,7 +125,7 @@
         firstFrameReady = true;
         stage.classList.add('ready');
         loadingLabel.style.opacity = '0';
-        renderFrame(0);
+        renderAtPosition(0);
       }
     };
     img.src = url;
@@ -136,27 +136,39 @@
 
   let targetPos = 0;   // where scroll input wants us to be
   let displayPos = 0;  // what's actually being drawn, eases toward targetPos
-  let currentDrawn = -1;
+  let lastRenderedPos = -1;
 
   function applyDelta(deltaFrames) {
     targetPos = clamp(targetPos + deltaFrames, 0, totalFrames - 1);
   }
 
-  function renderFrame(idx) {
+  // Cross-fades between the two frames straddling `pos`, so motion between
+  // our 8fps stills reads as continuous instead of a stepped slideshow.
+  function renderAtPosition(pos) {
     if (!firstFrameReady) return;
-    if (idx === currentDrawn) return;
-    const img = images[idx];
-    if (img && img.complete && img.naturalWidth) {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      currentDrawn = idx;
-      progressFill.style.width = ((idx + 1) / totalFrames * 100) + '%';
+    const idx0 = Math.floor(pos);
+    const idx1 = Math.min(idx0 + 1, totalFrames - 1);
+    const frac = pos - idx0;
+    const img0 = images[idx0];
+    if (!(img0 && img0.complete && img0.naturalWidth)) return;
+    ctx.globalAlpha = 1;
+    ctx.drawImage(img0, 0, 0, canvas.width, canvas.height);
+    const img1 = images[idx1];
+    if (frac > 0.01 && idx1 !== idx0 && img1 && img1.complete && img1.naturalWidth) {
+      ctx.globalAlpha = frac;
+      ctx.drawImage(img1, 0, 0, canvas.width, canvas.height);
+      ctx.globalAlpha = 1;
     }
+    progressFill.style.width = ((pos + 1) / totalFrames * 100) + '%';
   }
 
   function tick() {
     displayPos += (targetPos - displayPos) * EASE;
-    if (Math.abs(targetPos - displayPos) < 0.02) displayPos = targetPos;
-    renderFrame(Math.round(displayPos));
+    if (Math.abs(targetPos - displayPos) < 0.01) displayPos = targetPos;
+    if (Math.abs(displayPos - lastRenderedPos) > 0.002) {
+      renderAtPosition(displayPos);
+      lastRenderedPos = displayPos;
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

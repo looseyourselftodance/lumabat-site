@@ -30,15 +30,15 @@
       overflow: hidden;
       touch-action: none;
     }
-    #scrubCanvas {
+    .clip {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
       filter: brightness(0.9);
       opacity: 0;
-      transition: opacity 0.6s ease;
+      transition: opacity 0.4s ease;
     }
-    #stage.ready #scrubCanvas { opacity: 1; }
+    .clip.active { opacity: 1; z-index: 2; }
 
     .progress-track {
       position: fixed; left: 0; right: 0; bottom: 0;
@@ -94,7 +94,17 @@
 <body>
 
 <div id="stage">
-  <canvas id="scrubCanvas"></canvas>
+  <video class="clip active" data-index="0" src="videos/01.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="1" src="videos/02.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="2" src="videos/03.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="3" src="videos/04.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="4" src="videos/05.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="5" src="videos/06.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="6" src="videos/07.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="7" src="videos/08.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="8" src="videos/09.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="9" src="videos/10.mp4" muted playsinline preload="metadata"></video>
+  <video class="clip" data-index="10" src="videos/11.mp4" muted playsinline preload="metadata"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -105,53 +115,55 @@
 </div>
 
 <script>
-  // ── Unified scroll-scrubbed sequence ──
-  // The page itself never scrolls (fixed, full-viewport). Wheel / touch input
-  // moves a virtual position through ONE merged sequence built from all 11 clips.
-  // Scroll down / swipe up = forward. Scroll up / swipe down = backward.
+  // ── Real-video trigger-and-play engine ──
+  // The page opens paused on clip 1's first frame — a film waiting to be
+  // played. Scroll input never moves anything directly; it just
+  // accumulates. Once enough has accumulated (TRIGGER_THRESHOLD — "one good
+  // scroll"), it commits: plays straight through to the end of the current
+  // checkpoint using the browser's own native video playback (true smooth,
+  // matching the source mp4s), with no further input required. Arriving at
+  // a checkpoint boundary pauses the engine and shows that checkpoint's
+  // caption; any scroll dismisses it and moves to the next/previous clip.
+  //
+  // Forward playback uses real video.play() — native decode, native
+  // smoothness. Backward has no browser equivalent (no reverse playback),
+  // so it's driven by rapid seeking instead — smooth in spirit, but seek
+  // performance depends on the browser/clip.
 
-  // Each entry is one "checkpoint" (scene). `cost` is the scroll-effort
-  // budget in SUS (Scroll Unit Speed) to get through this checkpoint's
-  // frames — independent of its actual frame count. Defaults to `count`
-  // (neutral pacing) until we author real per-scene pacing later:
-  // cost > count  -> plays slower than baseline (linger, room for text)
-  // cost < count  -> plays faster than baseline (breeze through)
-  const VIDEO_FRAMES = [
-    { folder: 'videos/frames/01/', count: 80,  cost: 80 },
-    { folder: 'videos/frames/02/', count: 160, cost: 160 },
-    { folder: 'videos/frames/03/', count: 160, cost: 160 },
-    { folder: 'videos/frames/04/', count: 8,   cost: 8 },
-    { folder: 'videos/frames/05/', count: 160, cost: 160 },
-    { folder: 'videos/frames/06/', count: 8,   cost: 8 },
-    { folder: 'videos/frames/07/', count: 64,  cost: 64 },
-    { folder: 'videos/frames/08/', count: 64,  cost: 64 },
-    { folder: 'videos/frames/09/', count: 80,  cost: 80 },
-    { folder: 'videos/frames/10/', count: 8,   cost: 8 },
-    { folder: 'videos/frames/11/', count: 120, cost: 120 },
+  // `cost` is the scroll-effort budget in SUS — independent of duration.
+  // Defaults to `duration` (neutral pacing) until real per-scene pacing is
+  // authored later. cost > duration -> plays slower (linger); cost <
+  // duration -> plays faster (breeze through). Applied via playbackRate.
+  const CLIPS = [
+    { file: 'videos/01.mp4', duration: 10, cost: 10 },
+    { file: 'videos/02.mp4', duration: 20, cost: 20 },
+    { file: 'videos/03.mp4', duration: 20, cost: 20 },
+    { file: 'videos/04.mp4', duration: 1,  cost: 1 },
+    { file: 'videos/05.mp4', duration: 20, cost: 20 },
+    { file: 'videos/06.mp4', duration: 1,  cost: 1 },
+    { file: 'videos/07.mp4', duration: 8,  cost: 8 },
+    { file: 'videos/08.mp4', duration: 8,  cost: 8 },
+    { file: 'videos/09.mp4', duration: 10, cost: 10 },
+    { file: 'videos/10.mp4', duration: 1,  cost: 1 },
+    { file: 'videos/11.mp4', duration: 15, cost: 15 },
   ];
+  const TOTAL_DURATION = CLIPS.reduce((s, c) => s + c.duration, 0);
 
   // Placeholder captions, one per checkpoint — drafted from what's actually
   // in each clip. Meant to be replaced/adjusted, not final copy.
   const CHECKPOINT_TEXT = [
-    { label: '01 — L’Arrivée',      body: 'Une terrasse pensée pour l’heure dorée.' },
-    { label: '02 — La Piscine',            body: 'Là où la cuisine extérieure rencontre l’eau.' },
-    { label: '03 — Le Séjour',           body: 'Ouvert, lumineux, pensé pour se retrouver.' },
-    { label: '04 — La Buanderie',          body: 'Chaque détail compte, jusqu’à la buanderie.' },
-    { label: '05 — Le Garage',             body: 'Stationnement couvert, à deux pas de la cuisine.' },
-    { label: '06 — La Cuisine',            body: 'Là où la maison prend vie.' },
-    { label: '07 — Le Couloir',            body: 'Un passage calme vers la salle de bain.' },
-    { label: '08 — La Salle de Bain',      body: 'Douche pluie, lumière naturelle, aucun compromis.' },
-    { label: '09 — La Chambre',            body: 'Le repos, encadré de verre et de verdure.' },
-    { label: '10 — Le Bureau',             body: 'Un coin tranquille pour travailler chez soi.' },
-    { label: '11 — Le Retour',             body: 'De retour au point de départ — la piscine, au crépuscule.' },
+    { label: '01 — L’Arrivée',        body: 'Une terrasse pensée pour l’heure dorée.' },
+    { label: '02 — La Piscine',       body: 'Là où la cuisine extérieure rencontre l’eau.' },
+    { label: '03 — Le Séjour',        body: 'Ouvert, lumineux, pensé pour se retrouver.' },
+    { label: '04 — La Buanderie',     body: 'Chaque détail compte, jusqu’à la buanderie.' },
+    { label: '05 — Le Garage',        body: 'Stationnement couvert, à deux pas de la cuisine.' },
+    { label: '06 — La Cuisine',       body: 'Là où la maison prend vie.' },
+    { label: '07 — Le Couloir',       body: 'Un passage calme vers la salle de bain.' },
+    { label: '08 — La Salle de Bain', body: 'Douche pluie, lumière naturelle, aucun compromis.' },
+    { label: '09 — La Chambre',       body: 'Le repos, encadré de verre et de verdure.' },
+    { label: '10 — Le Bureau',        body: 'Un coin tranquille pour travailler chez soi.' },
+    { label: '11 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
   ];
-
-  // Source footage is stored at 8fps. Once triggered, a checkpoint always
-  // plays itself out at its own natural real-time pace (distance/SOURCE_FPS)
-  // — never faster, never slower, no matter how fast the scroll was.
-  // `cp.scale` (from the SUS cost above) stretches or compresses that pace:
-  // scale < 1 (costly/lingering) plays slower, scale > 1 plays faster.
-  const SOURCE_FPS = 8;
 
   // How much accumulated scroll (px) is needed to trigger a checkpoint —
   // "one good scroll" — tuned to roughly two or three normal wheel notches.
@@ -160,97 +172,55 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   // If no scroll/touch event arrives for this long, we're no longer
-  // "actively scrolling" — the current burst (if any) still finishes, but
-  // no new one chains after it, and any leftover accumulator clears.
+  // "actively scrolling" — a leftover accumulator that never reached
+  // threshold gets cleared rather than firing much later.
   const IDLE_MS = 150;
-
-  const frameUrls = [];
-  const checkpoints = [];
-  VIDEO_FRAMES.forEach((v) => {
-    const start = frameUrls.length;
-    for (let i = 1; i <= v.count; i++) {
-      frameUrls.push(v.folder + String(i).padStart(4, '0') + '.webp');
-    }
-    checkpoints.push({ start, end: frameUrls.length - 1, count: v.count, scale: v.count / v.cost });
-  });
-  const totalFrames = frameUrls.length;
-
-  function checkpointAt(pos) {
-    for (const c of checkpoints) {
-      if (pos >= c.start && pos <= c.end) return c;
-    }
-    return checkpoints[checkpoints.length - 1];
-  }
-
-  const stage = document.getElementById('stage');
-  const canvas = document.getElementById('scrubCanvas');
-  const ctx = canvas.getContext('2d');
-  const loadingLabel = document.getElementById('loadingLabel');
-  const progressFill = document.getElementById('progressFill');
-
-  const images = new Array(totalFrames);
-  let loadedCount = 0;
-  let firstFrameReady = false;
-
-  frameUrls.forEach((url, i) => {
-    const img = new Image();
-    img.onload = () => {
-      loadedCount++;
-      if (i === 0) {
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        firstFrameReady = true;
-        stage.classList.add('ready');
-        loadingLabel.style.opacity = '0';
-        renderAtPosition(0);
-      }
-    };
-    img.src = url;
-    images[i] = img;
-  });
+  // How fast backward seeking steps through the clip, in seconds of
+  // footage per second of real time (scaled by cp.scale on top of this).
+  const REVERSE_RATE = 1;
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-  let displayPos = 0;
-
-  // Cross-fades between the two frames straddling `pos`, so motion between
-  // our 8fps stills reads as continuous instead of a stepped slideshow.
-  function renderAtPosition(pos) {
-    if (!firstFrameReady) return;
-    const idx0 = Math.floor(pos);
-    const idx1 = Math.min(idx0 + 1, totalFrames - 1);
-    const frac = pos - idx0;
-    const img0 = images[idx0];
-    if (!(img0 && img0.complete && img0.naturalWidth)) return;
-    ctx.globalAlpha = 1;
-    ctx.drawImage(img0, 0, 0, canvas.width, canvas.height);
-    const img1 = images[idx1];
-    if (frac > 0.01 && idx1 !== idx0 && img1 && img1.complete && img1.naturalWidth) {
-      ctx.globalAlpha = frac;
-      ctx.drawImage(img1, 0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = 1;
-    }
-    progressFill.style.width = ((pos + 1) / totalFrames * 100) + '%';
-  }
-
-  // ── Trigger-and-play engine ──
-  // The page opens paused on frame 0 — a film waiting to be played. Scroll
-  // input never moves the playhead directly; it just accumulates. Once
-  // enough has accumulated (TRIGGER_THRESHOLD — "one good scroll"), it
-  // commits: plays straight through to the end of the current checkpoint at
-  // natural pace, with no further input required and nothing able to
-  // interrupt it partway. Arriving at the boundary pauses the engine and
-  // shows that checkpoint's caption; any scroll dismisses it (nudging one
-  // frame in that direction) and resumes, ready for the next trigger.
-  let accumulator = 0;
-  let pendingSign = 0;
-  let lastInputTime = 0;
-  let burst = null; // { from, to, start, duration } while a burst is animating
-  let paused = false;
-
+  const stage = document.getElementById('stage');
+  const videos = Array.from(document.querySelectorAll('.clip'));
+  const loadingLabel = document.getElementById('loadingLabel');
+  const progressFill = document.getElementById('progressFill');
   const checkpointTextEl = document.getElementById('checkpointText');
   const cpLabelEl = document.getElementById('cpLabel');
   const cpBodyEl = document.getElementById('cpBody');
+
+  videos.forEach((v) => { v.playsInline = true; });
+
+  let ready = false;
+  videos[0].addEventListener('loadeddata', () => {
+    if (ready) return;
+    ready = true;
+    loadingLabel.style.opacity = '0';
+  }, { once: true });
+
+  function elapsedBefore(idx) {
+    let s = 0;
+    for (let i = 0; i < idx; i++) s += CLIPS[i].duration;
+    return s;
+  }
+
+  function updateProgress() {
+    const elapsed = elapsedBefore(activeIndex) + videoTime;
+    progressFill.style.width = (elapsed / TOTAL_DURATION * 100) + '%';
+  }
+
+  function setActive(idx) {
+    videos.forEach((v, i) => v.classList.toggle('active', i === idx));
+  }
+
+  let activeIndex = 0;
+  let videoTime = 0; // seconds within the active clip
+  let accumulator = 0;
+  let pendingSign = 0;
+  let lastInputTime = 0;
+  let burst = null; // { target, sign } while a checkpoint is playing through
+  let paused = false;
+  let lastTickTime = null;
 
   function enterPause(idx) {
     paused = true;
@@ -259,13 +229,28 @@
     cpLabelEl.textContent = t.label;
     cpBodyEl.textContent = t.body;
     checkpointTextEl.classList.add('visible');
+    // Prime whichever clip we might head into next while the caption is up.
+    const next = videos[idx + 1];
+    if (next) next.preload = 'auto';
+    const prev = videos[idx - 1];
+    if (prev) prev.preload = 'auto';
   }
 
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
     checkpointTextEl.classList.remove('visible');
-    displayPos = clamp(displayPos + dismissSign, 0, totalFrames - 1);
+    if (dismissSign > 0 && activeIndex < CLIPS.length - 1) {
+      activeIndex++;
+      videoTime = 0;
+      videos[activeIndex].currentTime = 0;
+      setActive(activeIndex);
+    } else if (dismissSign < 0 && activeIndex > 0) {
+      activeIndex--;
+      videoTime = CLIPS[activeIndex].duration;
+      videos[activeIndex].currentTime = videoTime;
+      setActive(activeIndex);
+    }
   }
 
   function registerInput(deltaPxLike, now) {
@@ -276,40 +261,58 @@
     if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0; // direction reversed before firing
     pendingSign = sign;
     accumulator += Math.abs(deltaPxLike);
-    maybeStartBurst(now);
+    maybeStartBurst();
   }
 
-  // One good scroll (TRIGGER_THRESHOLD) commits to playing the *entire*
-  // rest of the current checkpoint in one continuous motion, straight to
-  // its boundary — no further input needed, and nothing can interrupt it
-  // partway through.
-  function maybeStartBurst(now) {
+  function maybeStartBurst() {
     if (burst || paused || accumulator < TRIGGER_THRESHOLD || pendingSign === 0) return;
     accumulator = 0;
-    const cp = checkpointAt(displayPos);
-    const to = pendingSign > 0 ? cp.end : cp.start;
-    const distance = Math.abs(to - displayPos);
-    const duration = Math.max((distance / SOURCE_FPS / cp.scale) * 1000, 50); // ms, natural pace (scaled per checkpoint)
-    burst = { from: displayPos, to, start: now, duration };
+    const cp = CLIPS[activeIndex];
+    const vid = videos[activeIndex];
+    const scale = clamp(cp.duration / cp.cost, 0.25, 4);
+    const target = pendingSign > 0 ? cp.duration : 0;
+    burst = { target, sign: pendingSign };
+    if (pendingSign > 0) {
+      vid.currentTime = videoTime;
+      vid.playbackRate = scale;
+      vid.play().catch(() => {});
+    } else {
+      vid.pause();
+    }
   }
 
   function tick(now) {
+    if (lastTickTime == null) lastTickTime = now;
+    const dt = clamp((now - lastTickTime) / 1000, 0, 0.1);
+    lastTickTime = now;
+
     if (burst) {
-      const t = clamp((now - burst.start) / burst.duration, 0, 1);
-      displayPos = burst.from + (burst.to - burst.from) * t;
-      if (t >= 1) {
-        displayPos = burst.to;
+      const cp = CLIPS[activeIndex];
+      const vid = videos[activeIndex];
+      const scale = clamp(cp.duration / cp.cost, 0.25, 4);
+      if (burst.sign > 0) {
+        videoTime = vid.currentTime;
+      } else {
+        videoTime = clamp(videoTime - dt * REVERSE_RATE * scale, 0, cp.duration);
+        vid.currentTime = videoTime;
+      }
+      const reached = burst.sign > 0
+        ? (videoTime >= burst.target - 0.03 || vid.ended)
+        : videoTime <= burst.target + 0.01;
+      if (reached) {
+        vid.pause();
+        videoTime = burst.target;
+        vid.currentTime = videoTime;
         burst = null;
-        const cp = checkpointAt(displayPos);
-        if (displayPos === cp.end || displayPos === cp.start) {
-          enterPause(checkpoints.indexOf(cp));
+        if (videoTime === cp.duration || videoTime === 0) {
+          enterPause(activeIndex);
         }
       }
     } else if (!paused && now - lastInputTime > IDLE_MS) {
-      accumulator = 0; // stale leftover from a scroll that trailed off — don't fire it later
+      accumulator = 0;
     }
 
-    renderAtPosition(displayPos);
+    updateProgress();
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

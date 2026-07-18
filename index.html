@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -128,6 +128,53 @@
       color: rgba(160,132,92,0.12);
       line-height: 1;
     }
+
+    /* ── STORY (scroll video) ── */
+    .story { padding: 0; background: var(--dark); }
+    .story-item {
+      position: relative;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--dark);
+    }
+    .story-video {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      filter: brightness(0.88);
+      transition: opacity 1s ease, transform 1.2s ease;
+      transform: scale(1.04);
+    }
+    .story-item.active .story-video { opacity: 1; transform: scale(1); }
+    .story-item::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg, rgba(26,26,26,0.25) 0%, rgba(26,26,26,0) 30%, rgba(26,26,26,0) 70%, rgba(26,26,26,0.35) 100%);
+      pointer-events: none;
+    }
+    .story-count {
+      position: absolute; left: 5%; bottom: 2.5rem; z-index: 2;
+      font-size: 0.72rem; font-weight: 500; letter-spacing: 0.25em;
+      text-transform: uppercase; color: rgba(248,247,244,0.7);
+      display: flex; align-items: center; gap: 0.6rem;
+    }
+    .story-count .bronze { color: var(--bronze-light); }
+    .story-count .bar {
+      width: 2.5rem; height: 1px; background: rgba(248,247,244,0.3);
+    }
+    .story-dots {
+      position: fixed; right: 4%; top: 50%; transform: translateY(-50%);
+      z-index: 50; display: flex; flex-direction: column; gap: 0.55rem;
+      opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+    }
+    .story-dots.visible { opacity: 1; }
+    .story-dots .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(248,247,244,0.3);
+      transition: background 0.3s, transform 0.3s;
+    }
+    .story-dots .dot.active { background: var(--bronze-light); transform: scale(1.6); }
 
     /* ── SECTION BASE ── */
     section { padding: 6rem 5%; }
@@ -334,6 +381,55 @@
   </div>
   <div class="hero-deco"></div>
 </section>
+
+<!-- STORY (scroll video) -->
+<section class="story" id="story">
+  <div class="story-item" data-src="videos/01.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">01</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/02.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">02</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/03.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">03</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/04.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">04</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/05.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">05</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/06.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">06</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/07.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">07</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/08.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">08</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/09.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">09</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/10.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">10</span><span class="bar"></span><span>11</span></div>
+  </div>
+  <div class="story-item" data-src="videos/11.mp4">
+    <video class="story-video" muted loop playsinline preload="none"></video>
+    <div class="story-count"><span class="bronze">11</span><span class="bar"></span><span>11</span></div>
+  </div>
+</section>
+<div class="story-dots" id="storyDots"></div>
 
 <!-- ABOUT -->
 <section class="about" id="about">
@@ -571,6 +667,61 @@
 
   // Init
   setLang('fr');
+
+  // ── STORY scroll video ──
+  (function () {
+    const items = Array.from(document.querySelectorAll('.story-item'));
+    if (!items.length) return;
+
+    const dotsWrap = document.getElementById('storyDots');
+    items.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === 0 ? ' active' : '');
+      dotsWrap.appendChild(d);
+    });
+    const dots = Array.from(dotsWrap.children);
+
+    // Preload the video source shortly before each section is reached
+    const preloadObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const item = entry.target;
+          const video = item.querySelector('.story-video');
+          if (!video.src) video.src = item.getAttribute('data-src');
+          preloadObserver.unobserve(item);
+        }
+      });
+    }, { rootMargin: '100% 0px 100% 0px' });
+
+    // Play/pause + fade + dots based on visibility
+    const activeObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const item = entry.target;
+        const video = item.querySelector('.story-video');
+        const idx = items.indexOf(item);
+        if (entry.isIntersecting && entry.intersectionRatio > 0.5) {
+          item.classList.add('active');
+          if (video.src) video.play().catch(() => {});
+          dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+          dotsWrap.classList.add('visible');
+        } else {
+          item.classList.remove('active');
+          video.pause();
+        }
+      });
+    }, { threshold: [0, 0.5, 1] });
+
+    items.forEach((item) => {
+      preloadObserver.observe(item);
+      activeObserver.observe(item);
+    });
+
+    const storySection = document.getElementById('story');
+    const dotsVisibility = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => dotsWrap.classList.toggle('visible', entry.isIntersecting));
+    }, { threshold: 0 });
+    dotsVisibility.observe(storySection);
+  })();
 </script>
 
 </body>

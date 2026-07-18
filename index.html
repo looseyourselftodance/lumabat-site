@@ -74,36 +74,62 @@
   // moves a virtual position through ONE merged sequence built from all 11 clips.
   // Scroll down / swipe up = forward. Scroll up / swipe down = backward.
 
+  // Each entry is one "checkpoint" (scene). `cost` is the scroll-effort
+  // budget in SUS (Scroll Unit Speed) to get through this checkpoint's
+  // frames — independent of its actual frame count. Defaults to `count`
+  // (neutral pacing) until we author real per-scene pacing later:
+  // cost > count  -> plays slower than baseline (linger, room for text)
+  // cost < count  -> plays faster than baseline (breeze through)
   const VIDEO_FRAMES = [
-    { folder: 'videos/frames/01/', count: 80 },
-    { folder: 'videos/frames/02/', count: 160 },
-    { folder: 'videos/frames/03/', count: 160 },
-    { folder: 'videos/frames/04/', count: 8 },
-    { folder: 'videos/frames/05/', count: 160 },
-    { folder: 'videos/frames/06/', count: 8 },
-    { folder: 'videos/frames/07/', count: 64 },
-    { folder: 'videos/frames/08/', count: 64 },
-    { folder: 'videos/frames/09/', count: 80 },
-    { folder: 'videos/frames/10/', count: 8 },
-    { folder: 'videos/frames/11/', count: 120 },
+    { folder: 'videos/frames/01/', count: 80,  cost: 80 },
+    { folder: 'videos/frames/02/', count: 160, cost: 160 },
+    { folder: 'videos/frames/03/', count: 160, cost: 160 },
+    { folder: 'videos/frames/04/', count: 8,   cost: 8 },
+    { folder: 'videos/frames/05/', count: 160, cost: 160 },
+    { folder: 'videos/frames/06/', count: 8,   cost: 8 },
+    { folder: 'videos/frames/07/', count: 64,  cost: 64 },
+    { folder: 'videos/frames/08/', count: 64,  cost: 64 },
+    { folder: 'videos/frames/09/', count: 80,  cost: 80 },
+    { folder: 'videos/frames/10/', count: 8,   cost: 8 },
+    { folder: 'videos/frames/11/', count: 120, cost: 120 },
   ];
 
-  // Frames advanced per px of wheel delta. Our footage is stored at 8fps
-  // (912 frames / 114s of source), so 2 seconds of footage = 16 stored frames.
-  // Tuned so ~3 normal trackpad/wheel scrolls cover roughly that 2 seconds.
-  const SENSITIVITY = 0.012;
+  // Governed speed band, in frames/sec. Motion never exceeds MAX_SPEED no
+  // matter how hard you scroll, and never drops below MIN_SPEED as long as
+  // there's active input — scroll intensity only picks where in this band
+  // we sit, it never scales speed proportionally beyond it.
+  const MIN_SPEED = 3;
+  const MAX_SPEED = 14;
+  // Converts a raw px-per-second input rate into a frames/sec magnitude,
+  // before it gets clamped into [MIN_SPEED, MAX_SPEED].
+  const INPUT_TO_SPEED = 0.05;
   const TOUCH_MULTIPLIER = 2.2;
-  // Easing: how fast the displayed position catches up to the scroll target.
-  // Lower = smoother/more lag, higher = snappier/more direct.
-  const EASE = 0.1;
+  // How much smoothing is applied to the input-intensity signal itself
+  // (separate from position smoothing) — avoids single noisy events
+  // yanking the speed around.
+  const EMA_ALPHA = 0.4;
+  // If no scroll/touch event arrives for this long, we're considered idle
+  // and start decelerating to a stop instead of coasting indefinitely.
+  const IDLE_MS = 140;
+  const DECAY = 0.85;
 
   const frameUrls = [];
+  const checkpoints = [];
   VIDEO_FRAMES.forEach((v) => {
+    const start = frameUrls.length;
     for (let i = 1; i <= v.count; i++) {
       frameUrls.push(v.folder + String(i).padStart(4, '0') + '.webp');
     }
+    checkpoints.push({ start, end: frameUrls.length - 1, count: v.count, scale: v.count / v.cost });
   });
   const totalFrames = frameUrls.length;
+
+  function checkpointAt(pos) {
+    for (const c of checkpoints) {
+      if (pos >= c.start && pos <= c.end) return c;
+    }
+    return checkpoints[checkpoints.length - 1];
+  }
 
   const stage = document.getElementById('stage');
   const canvas = document.getElementById('scrubCanvas');
@@ -134,13 +160,7 @@
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-  let targetPos = 0;   // where scroll input wants us to be
-  let displayPos = 0;  // what's actually being drawn, eases toward targetPos
-  let lastRenderedPos = -1;
-
-  function applyDelta(deltaFrames) {
-    targetPos = clamp(targetPos + deltaFrames, 0, totalFrames - 1);
-  }
+  let displayPos = 0;
 
   // Cross-fades between the two frames straddling `pos`, so motion between
   // our 8fps stills reads as continuous instead of a stepped slideshow.
@@ -162,38 +182,75 @@
     progressFill.style.width = ((pos + 1) / totalFrames * 100) + '%';
   }
 
-  function tick() {
-    displayPos += (targetPos - displayPos) * EASE;
-    if (Math.abs(targetPos - displayPos) < 0.01) displayPos = targetPos;
-    if (Math.abs(displayPos - lastRenderedPos) > 0.002) {
-      renderAtPosition(displayPos);
-      lastRenderedPos = displayPos;
+  // ── Governed-speed input engine ──
+  // Scroll/touch/keyboard events don't move the playhead directly — they
+  // feed a smoothed "how hard are you scrolling" signal (inputMagnitude).
+  // Every animation frame, that signal (clamped into the speed band, scaled
+  // per-checkpoint) is integrated into position. No queued distance, no
+  // proportional jumps — just a governed rate that scroll turns on/off.
+  let inputMagnitude = 0;
+  let inputSign = 0;
+  let lastEventTime = null;
+  let lastInputTime = 0;
+  let lastTickTime = null;
+
+  function registerInput(deltaPxLike, now) {
+    if (lastEventTime != null) {
+      const dt = clamp((now - lastEventTime) / 1000, 0.01, 0.5);
+      const instantRate = Math.abs(deltaPxLike) * INPUT_TO_SPEED / dt;
+      inputMagnitude += (instantRate - inputMagnitude) * EMA_ALPHA;
+    } else {
+      inputMagnitude = Math.abs(deltaPxLike) * INPUT_TO_SPEED;
     }
+    lastEventTime = now;
+    lastInputTime = now;
+    if (deltaPxLike !== 0) inputSign = Math.sign(deltaPxLike);
+  }
+
+  function tick(now) {
+    if (lastTickTime == null) lastTickTime = now;
+    const dtTick = clamp((now - lastTickTime) / 1000, 0, 0.1);
+    lastTickTime = now;
+
+    if (now - lastInputTime > IDLE_MS) {
+      inputMagnitude *= DECAY;
+      if (inputMagnitude < 0.01) { inputMagnitude = 0; inputSign = 0; }
+    }
+
+    if (inputMagnitude > 0 && inputSign !== 0) {
+      const cp = checkpointAt(displayPos);
+      const speed = clamp(inputMagnitude, MIN_SPEED, MAX_SPEED) * cp.scale;
+      displayPos = clamp(displayPos + inputSign * speed * dtTick, 0, totalFrames - 1);
+      if (displayPos === 0 || displayPos === totalFrames - 1) { inputMagnitude = 0; inputSign = 0; }
+    }
+
+    renderAtPosition(displayPos);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
 
   window.addEventListener('wheel', (e) => {
     e.preventDefault();
-    applyDelta(e.deltaY * SENSITIVITY);
+    registerInput(e.deltaY, performance.now());
   }, { passive: false });
 
-  let touchStartY = null;
+  let touchLastY = null;
   window.addEventListener('touchstart', (e) => {
-    touchStartY = e.touches[0].clientY;
+    touchLastY = e.touches[0].clientY;
   }, { passive: true });
   window.addEventListener('touchmove', (e) => {
-    if (touchStartY === null) return;
+    if (touchLastY === null) return;
     const y = e.touches[0].clientY;
-    const delta = touchStartY - y;
-    touchStartY = y;
+    const delta = (touchLastY - y) * TOUCH_MULTIPLIER;
+    touchLastY = y;
     e.preventDefault();
-    applyDelta(delta * TOUCH_MULTIPLIER * SENSITIVITY);
+    registerInput(delta, performance.now());
   }, { passive: false });
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') applyDelta(40 * SENSITIVITY);
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') applyDelta(-40 * SENSITIVITY);
+    const now = performance.now();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') registerInput(80, now);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') registerInput(-80, now);
   });
 </script>
 

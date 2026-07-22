@@ -105,6 +105,20 @@
   <video class="clip" data-index="8" src="videos/09.mp4" muted playsinline preload="auto"></video>
   <video class="clip" data-index="9" src="videos/10.mp4" muted playsinline preload="auto"></video>
   <video class="clip" data-index="10" src="videos/11.mp4" muted playsinline preload="auto"></video>
+  <!-- Reversed twins: same content, frames in reverse order. Playing these
+       forward looks exactly like the original playing backward — genuine
+       native decode either way, since <video> has no reverse playbackRate. -->
+  <video class="clip" data-index="0" data-rev src="videos/01r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="1" data-rev src="videos/02r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="2" data-rev src="videos/03r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="3" data-rev src="videos/04r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="4" data-rev src="videos/05r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="5" data-rev src="videos/06r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="6" data-rev src="videos/07r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="7" data-rev src="videos/08r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="8" data-rev src="videos/09r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="9" data-rev src="videos/10r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="10" data-rev src="videos/11r.mp4" muted playsinline preload="auto"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -122,6 +136,12 @@
   // through to the next (or previous) checkpoint. Checkpoints no longer
   // have to sit on clip boundaries — a burst can span multiple clips in one
   // continuous motion, switching the active <video> seamlessly as it goes.
+  //
+  // Backward: <video> has no negative playbackRate, so true reverse
+  // playback isn't possible on the forward file. Instead each clip has a
+  // pre-rendered reversed twin (frames in reverse order); playing that
+  // twin forward looks exactly like the original rewinding, with genuine
+  // native decode in both directions.
 
   const CLIPS = [
     { file: 'videos/01.mp4', duration: 10 },
@@ -141,7 +161,7 @@
   // Every checkpoint-to-checkpoint segment takes exactly this many real
   // seconds, no matter how much footage it covers — a short 1s connector
   // clip plays in slow motion, a 30s segment plays back very fast, both
-  // land on the next checkpoint at the same pace.
+  // land on the next checkpoint at the same pace (capped by MAX_RATE).
   const SEGMENT_SECONDS = 3;
 
   // Curated checkpoints (clip index is 0-based: clip 0 = videos/01.mp4).
@@ -183,16 +203,16 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   const IDLE_MS = 150;
-  // Backward has no native reverse-playback API at all — any seek-driven
-  // simulation is fundamentally stepped, not fluid. Rather than fake a
-  // choppy "rewind", backward is an instant cut straight to the previous
-  // checkpoint's frame instead.
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function clipDuration(i) { return CLIPS[i].duration; }
+  // Maps a position in the forward clip's timeline to the equivalent
+  // position in its reversed twin's own timeline (frame order is flipped).
+  function revTime(clipIdx, t) { return clipDuration(clipIdx) - t; }
 
   const stage = document.getElementById('stage');
-  const videos = Array.from(document.querySelectorAll('.clip'));
+  const videos = Array.from(document.querySelectorAll('.clip:not([data-rev])'));
+  const videosRev = Array.from(document.querySelectorAll('.clip[data-rev]'));
   const loadingLabel = document.getElementById('loadingLabel');
   const progressFill = document.getElementById('progressFill');
   const checkpointTextEl = document.getElementById('checkpointText');
@@ -200,6 +220,7 @@
   const cpBodyEl = document.getElementById('cpBody');
 
   videos.forEach((v) => { v.playsInline = true; });
+  videosRev.forEach((v) => { v.playsInline = true; });
 
   let ready = false;
   videos[0].addEventListener('loadeddata', () => {
@@ -216,19 +237,20 @@
   function updateProgress() {
     progressFill.style.width = ((elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100) + '%';
   }
-  function setActive(idx) {
-    videos.forEach((v, i) => v.classList.toggle('active', i === idx));
+  // useReversed picks which of the two <video>s for this clip index is shown.
+  function setActive(idx, useReversed) {
+    videos.forEach((v, i) => v.classList.toggle('active', !useReversed && i === idx));
+    videosRev.forEach((v, i) => v.classList.toggle('active', !!useReversed && i === idx));
   }
 
   let activeIndex = 0;
-  let videoTime = 0;          // seconds within the active clip
+  let videoTime = 0;          // seconds within the active clip, forward-timeline terms
   let restingCPIndex = 0;     // index into CHECKPOINTS we last came to rest at
   let accumulator = 0;
   let pendingSign = 0;
   let lastInputTime = 0;
   let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
-  let lastTickTime = null;
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -240,17 +262,24 @@
     checkpointTextEl.classList.add('visible');
   }
 
-  // Backward is an instant cut to the target checkpoint's clip+time — no
-  // simulated reverse playback, since that can only ever be stepped, never
-  // truly fluid. Forward keeps playing through normally.
-  function jumpTo(cpIndex, sign) {
+  // Always come to rest on the forward element (paused, positioned
+  // correctly) regardless of which direction we arrived from, so captions
+  // and the next trigger in either direction start from a consistent state.
+  function arriveAt(cpIndex, sign) {
+    restingCPIndex = cpIndex;
+    burst = null;
     videos[activeIndex].pause();
-    const tgt = CHECKPOINTS[cpIndex];
-    activeIndex = tgt.clip;
-    videoTime = tgt.time;
     videos[activeIndex].currentTime = videoTime;
-    setActive(activeIndex);
-    arriveAt(cpIndex, sign);
+    setActive(activeIndex, false);
+    const cp = CHECKPOINTS[cpIndex];
+    if (cp.auto) {
+      const nextIdx = cpIndex + sign;
+      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
+        burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
+      }
+    } else {
+      enterPause(cpIndex);
+    }
   }
 
   // Dismissing a pause must *itself* continue the film — not just step past
@@ -263,8 +292,7 @@
     checkpointTextEl.classList.remove('visible');
     const targetCPIndex = restingCPIndex + dismissSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return; // nothing further that way
-    if (dismissSign < 0) jumpTo(targetCPIndex, dismissSign);
-    else burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+    burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function registerInput(deltaPxLike, now) {
@@ -288,66 +316,47 @@
     const targetCPIndex = restingCPIndex + pendingSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
     accumulator = 0;
-    if (pendingSign < 0) jumpTo(targetCPIndex, pendingSign);
-    else burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
-  }
-
-  function arriveAt(cpIndex, sign) {
-    restingCPIndex = cpIndex;
-    burst = null;
-    const cp = CHECKPOINTS[cpIndex];
-    if (cp.auto) {
-      const nextIdx = cpIndex + sign;
-      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
-        if (sign < 0) jumpTo(nextIdx, sign);
-        else burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
-      }
-    } else {
-      enterPause(cpIndex);
-    }
+    burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function tick(now) {
-    if (lastTickTime == null) lastTickTime = now;
-    const dt = clamp((now - lastTickTime) / 1000, 0, 0.1);
-    lastTickTime = now;
-
     if (burst) {
-      // Forward only — backward is an instant jumpTo(), never a lingering
-      // burst. See jumpTo() above.
       const tgt = CHECKPOINTS[burst.targetCPIndex];
       const atTargetClip = activeIndex === tgt.clip;
-      const subTarget = atTargetClip ? tgt.time : clipDuration(activeIndex);
-      const vid = videos[activeIndex];
+      const sign = burst.sign;
+      const subTarget = atTargetClip ? tgt.time : (sign > 0 ? clipDuration(activeIndex) : 0);
+      const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
 
       // Already sitting exactly at this clip's sub-target (e.g. we just
       // arrived here at its very last frame) — skip play() entirely.
-      // Calling play() on a clip already at its end is what caused clip 1
-      // to silently rewind and replay instead of advancing to clip 2.
-      const alreadyThere = videoTime >= subTarget - 0.03;
+      // Calling play() on a clip already at its end/start is what caused
+      // clip 1 to silently rewind and replay instead of advancing.
+      const alreadyThere = sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.03;
 
-      if (!alreadyThere && !burst.playing) {
-        vid.currentTime = videoTime;
-        vid.playbackRate = burst.rate;
-        vid.play().catch(() => {});
-        burst.playing = true;
+      if (!alreadyThere) {
+        if (!burst.playing) {
+          vid.currentTime = sign > 0 ? videoTime : revTime(activeIndex, videoTime);
+          vid.playbackRate = burst.rate;
+          vid.play().catch(() => {});
+          burst.playing = true;
+          setActive(activeIndex, sign < 0);
+        }
+        videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
       }
-      if (!alreadyThere) videoTime = vid.currentTime;
 
-      const reached = alreadyThere || videoTime >= subTarget - 0.03 || vid.ended;
+      const reached = alreadyThere || (sign > 0
+        ? (videoTime >= subTarget - 0.03 || vid.ended)
+        : (videoTime <= subTarget + 0.03 || vid.ended));
 
       if (reached) {
         vid.pause();
         videoTime = subTarget;
-        vid.currentTime = videoTime;
 
         if (atTargetClip) {
-          arriveAt(burst.targetCPIndex, burst.sign);
+          arriveAt(burst.targetCPIndex, sign);
         } else {
-          activeIndex += 1;
-          videoTime = 0;
-          videos[activeIndex].currentTime = 0;
-          setActive(activeIndex);
+          activeIndex += sign;
+          videoTime = sign > 0 ? 0 : clipDuration(activeIndex);
           burst.playing = false;
         }
       }

@@ -258,17 +258,26 @@
 </header>
 
 <div id="stage">
-  <video class="clip active" id="fwdVideo" src="videos/tour.mp4" muted playsinline preload="auto"></video>
+  <!-- No src here on purpose — set in JS (before anything can start
+       fetching) so phones get the ~14MB mobile-resolution encode instead
+       of the 42.5MB desktop one. At full 1080p bitrate, real-world mobile
+       bandwidth couldn't keep up with real-time playback: the video kept
+       stalling mid-segment, and a stall-recovery guard elsewhere in this
+       engine (there to stop the UI ever getting permanently stuck) would
+       then snap straight to the checkpoint frame — which is exactly the
+       "one frame per checkpoint, no fluid video" symptom this fixes. -->
+  <video class="clip active" id="fwdVideo" muted playsinline preload="auto"></video>
   <!-- Reversed twin: same footage, frames in reverse order. Playing this
        forward looks exactly like the original rewinding — genuine native
        decode either direction, since <video> has no negative playbackRate.
        preload starts at "metadata" (not "auto") and is promoted to "auto"
-       in JS once the forward video is actually ready — see readyGate()
-       below. Two videos fighting over bandwidth for a simultaneous 85MB
-       preload was the direct cause of the video never appearing on
-       mobile: the forward one (the only one needed to show anything at
-       all) could stall behind the reversed one indefinitely. -->
-  <video class="clip" id="revVideo" src="videos/tour-rev.mp4" muted playsinline preload="metadata"></video>
+       in JS once the forward video is actually ready — see markReady()
+       below. Two videos fighting over bandwidth for a simultaneous
+       preload was the direct cause of the video never appearing at all on
+       some mobile connections: the forward one (the only one needed to
+       show anything at all) could stall behind the reversed one
+       indefinitely. -->
+  <video class="clip" id="revVideo" muted playsinline preload="metadata"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -342,6 +351,14 @@
 
   const fwd = document.getElementById('fwdVideo');
   const rev = document.getElementById('revVideo');
+
+  // Same duration/keyframe density/checkpoints either way — only the
+  // resolution (and therefore bitrate) differs, so nothing else in this
+  // engine needs to know which variant is actually playing.
+  const useMobileVideo = window.innerWidth <= 800;
+  fwd.src = useMobileVideo ? 'videos/tour-mobile.mp4' : 'videos/tour.mp4';
+  rev.src = useMobileVideo ? 'videos/tour-rev-mobile.mp4' : 'videos/tour-rev.mp4';
+
   const loadingLabel = document.getElementById('loadingLabel');
   const progressFill = document.getElementById('progressFill');
   const checkpointTextEl = document.getElementById('checkpointText');

@@ -66,20 +66,68 @@
     }
 
     /* Short-and-wide dark glass panel behind text overlays, so copy stays
-       legible over bright/busy frames without flattening the video itself. */
+       legible over bright/busy frames without flattening the video itself.
+       Fixed target width (not just content-driven) so it reads as a
+       deliberate wide card rather than shrink-wrapping the text — wide,
+       but capped well short of the full viewport. */
     .text-panel {
       background: rgba(20,17,15,0.28);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-radius: 3px;
-      padding: 1.9rem 4.4rem;
+      padding: 1.9rem 3.5rem;
+      width: min(760px, 88vw);
+    }
+
+    /* Thin persistent header — logo, back-to-start, contact — same dark
+       glass treatment as the text panels, always on top of the film. */
+    header {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 70;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+      padding: 0 1.8rem;
+      background: rgba(20,17,15,0.30);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    header .header-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 300;
+      font-size: 1.05rem;
+      letter-spacing: 0.3em;
+      color: rgba(248,247,244,0.7);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    header nav {
+      display: flex; align-items: center; gap: 1.6rem;
+    }
+    header nav a {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.64rem; font-weight: 500;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: rgba(248,247,244,0.55);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.2s ease;
+    }
+    header nav a:hover { color: var(--bronze-light); }
+    header nav a.contact-btn {
+      color: #F8F7F4;
+      border: 1px solid rgba(196,168,130,0.5);
+      border-radius: 2px;
+      padding: 0.5rem 1rem;
+    }
+    header nav a.contact-btn:hover {
+      background: rgba(196,168,130,0.15);
+      border-color: var(--bronze-light);
     }
 
     .checkpoint-text {
       position: fixed; left: 50%; bottom: 14%;
       transform: translate(-50%, 16px);
       z-index: 60; text-align: center;
-      max-width: 620px; width: 84%;
       opacity: 0; pointer-events: none;
       transition: opacity 0.5s ease, transform 0.5s ease;
     }
@@ -190,6 +238,14 @@
 </head>
 <body>
 
+<header>
+  <span class="header-logo" id="headerLogo">LUMABAT</span>
+  <nav>
+    <a id="headerRestart">Retour au début</a>
+    <a class="contact-btn" href="contact.html">Contact</a>
+  </nav>
+</header>
+
 <div id="stage">
   <video class="clip active" id="fwdVideo" src="videos/tour.mp4" muted playsinline preload="auto"></video>
   <!-- Reversed twin: same footage, frames in reverse order. Playing this
@@ -252,7 +308,7 @@
     { time: 66.000000, label: '07 — Chambre Secondaire',   body: 'Chambres avec armoires intégrées, de 15 à 20 m².' },
     { time: 80.933333, label: '08 — Retour à la Piscine',  body: 'La piscine, une dernière fois.',
       ctas: [
-        { label: 'En savoir plus',            href: 'index.html' },
+        { label: 'En savoir plus',            action: 'reset' },
         { label: 'Voir le plan de la maison', href: 'plan-maison-ambre.pdf', blank: true },
         { label: 'Contact',                   href: 'contact.html', primary: true },
       ] },
@@ -277,6 +333,10 @@
   const cpBodyEl = document.getElementById('cpBody');
   const cpCtasEl = document.getElementById('cpCtas');
   const heroEl = document.getElementById('hero');
+  const headerLogoEl = document.getElementById('headerLogo');
+  const headerRestartEl = document.getElementById('headerRestart');
+  headerLogoEl.addEventListener('click', () => resetToStart());
+  headerRestartEl.addEventListener('click', () => resetToStart());
 
   fwd.playsInline = true;
   rev.playsInline = true;
@@ -316,15 +376,21 @@
   let lastInputTime = 0;
   let paused = false;
 
-  // Tracks how "aggressive" recent scroll input has been (an exponential
-  // moving average of |delta| per input event, in the same px-like units as
-  // TRIGGER_THRESHOLD). A normal, unhurried scroll keeps this near
-  // NORMAL_DELTA and playback stays at native 1x; scrolling distinctly
-  // harder than that nudges the rate up, capped at SPEED_LIMIT so it's
-  // still a small boost, not a different film.
+  // Tracks how "aggressive" recent scroll input has been — px of input
+  // accumulated, continuously decaying with a short half-life (see tick()).
+  // This (not a plain per-event average) is what makes it correctly read
+  // trackpads as aggressive too: a fast trackpad flick fires many *small*
+  // deltas in quick succession, and a per-event average would see each one
+  // as mild; summing-with-decay instead reflects total recent px moved,
+  // which is high either way for a genuinely fast gesture. A normal,
+  // unhurried scroll keeps this near NORMAL_DELTA and playback stays at
+  // native 1x; scrolling distinctly harder nudges the rate up, capped at
+  // SPEED_LIMIT so it's a small boost, not a different film.
   let scrollIntensity = 0;
-  const NORMAL_DELTA = 120;
+  let lastTickTime = 0;
+  const NORMAL_DELTA = 140;
   const SPEED_LIMIT = 1.6;
+  const INTENSITY_HALFLIFE_MS = 220;
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function currentRate() { return clamp(scrollIntensity / NORMAL_DELTA, PLAY_RATE, SPEED_LIMIT); }
 
@@ -348,11 +414,36 @@
       const a = document.createElement('a');
       a.className = 'cp-cta-btn' + (cta.primary ? ' primary' : '');
       a.textContent = cta.label;
-      a.href = cta.href;
-      if (cta.blank) { a.target = '_blank'; a.rel = 'noopener'; }
+      if (cta.action === 'reset') {
+        a.href = '#';
+        a.addEventListener('click', (e) => { e.preventDefault(); resetToStart(); });
+      } else {
+        a.href = cta.href;
+        if (cta.blank) { a.target = '_blank'; a.rel = 'noopener'; }
+      }
       cpCtasEl.appendChild(a);
     });
     checkpointTextEl.classList.add('visible');
+  }
+
+  // Jumps straight back to the opening hero without a full page reload —
+  // used by the header's "Retour au début" and the closing checkpoint's
+  // "En savoir plus", both of which want an instant reset rather than
+  // re-fetching/re-buffering the video from a fresh navigation.
+  function resetToStart() {
+    motion = null;
+    paused = false;
+    accumulator = 0;
+    pendingSign = 0;
+    scrollIntensity = 0;
+    videoTime = 0;
+    restingCPIndex = 0;
+    fwd.pause();
+    rev.pause();
+    fwd.currentTime = 0;
+    setActive(false, true);
+    checkpointTextEl.classList.remove('visible');
+    heroEl.classList.remove('hidden');
   }
 
   // Always come to rest on the forward element (paused, positioned
@@ -429,12 +520,19 @@
     if (deltaPxLike === 0) return;
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
-    // EMA rather than the raw delta, so one stray large event can't spike
-    // the rate — it takes a sustained harder scroll to actually ramp up.
-    scrollIntensity = scrollIntensity * 0.6 + Math.abs(deltaPxLike) * 0.4;
+    // Accumulates (decays continuously in tick(), not blended per-event) —
+    // see the scrollIntensity declaration above for why.
+    scrollIntensity += Math.abs(deltaPxLike);
     if (paused) { exitPause(sign); return; }
     if (motion) {
-      if (sign !== motionSign()) reverseInstantly();
+      if (sign !== motionSign()) {
+        reverseInstantly();
+      } else {
+        // "Overscrolling" in the same direction as an already-playing
+        // motion: let it speed up live rather than only mattering at the
+        // moment the segment started (still capped at SPEED_LIMIT).
+        motion.rate = currentRate();
+      }
       accumulator = 0;
       pendingSign = 0;
       return;
@@ -481,6 +579,11 @@
         motion.lastVideoTime = undefined;
         setActive(sign < 0, motion.justReversed);
         motion.justReversed = false;
+      } else if (vid.playbackRate !== motion.rate) {
+        // Continued aggressive scrolling can bump motion.rate mid-flight
+        // (see registerInput) — reflect that on the actually-playing
+        // element right away instead of only at the next leg's start.
+        vid.playbackRate = motion.rate;
       }
       videoTime = sign > 0 ? vid.currentTime : revTime(vid.currentTime);
 
@@ -507,6 +610,10 @@
   }
 
   function tick(now) {
+    if (lastTickTime) {
+      scrollIntensity *= Math.pow(0.5, (now - lastTickTime) / INTENSITY_HALFLIFE_MS);
+    }
+    lastTickTime = now;
     try {
       if (motion) handleMotion(now);
       else if (!paused && now - lastInputTime > IDLE_MS) accumulator = 0;

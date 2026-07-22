@@ -389,8 +389,16 @@
   // playing (if anything's actually started yet) and swaps target/origin.
   function reverseInstantly() {
     if (motion.playing) {
-      const curVid = motionSign() > 0 ? videos[activeIndex] : videosRev[activeIndex];
+      const curSign = motionSign();
+      const curVid = curSign > 0 ? videos[activeIndex] : videosRev[activeIndex];
       curVid.pause();
+      // videoTime is only updated once per tick (~16ms), but this pause
+      // happens the instant the scroll event fires — possibly a few ms
+      // after the last tick's reading. Resync to curVid's true position
+      // right now, so the incoming (reversed) element seeks to exactly
+      // where this one actually stopped, not a stale position — that gap
+      // was likely the fast flicker/overlap right at the switch instant.
+      videoTime = curSign > 0 ? curVid.currentTime : revTime(activeIndex, curVid.currentTime);
     }
     reverseMotion();
   }

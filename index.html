@@ -263,6 +263,10 @@
   // by opposite-direction scroll — a fixed brake, not proportional to how
   // hard the interrupting scroll was.
   const INTERRUPT_EASE_MS = 300;
+  // If a burst's video stops advancing for this long (stalled buffering,
+  // failed seek, etc.), force it to complete rather than block input
+  // indefinitely — see the stall-guard in tick().
+  const STALL_MS = 1200;
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -309,14 +313,30 @@
     burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
+  // Target whichever of the two checkpoints bounding the current excursion
+  // matches `sign` — the original destination if flipping back that way,
+  // otherwise the origin. Never drifts past either even with repeated
+  // flip-flopping.
+  function reversalBurst(sign) {
+    const targetCPIndex = sign === excursionBoundSign ? restingCPIndex + excursionBoundSign : restingCPIndex;
+    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return null;
+    return { targetCPIndex, sign, playing: false, rate: burstRate(restingCPIndex, restingCPIndex + excursionBoundSign) };
+  }
+
   // Mid-flight direction change: don't wait for the current burst to reach
   // its target. Brake the clip that's currently playing over a fixed
-  // moment, then head off the other way — bounded to the two checkpoints
-  // straddling this excursion (restingCPIndex and restingCPIndex +
-  // excursionBoundSign, whichever direction the trip originally set out
-  // in), so repeated flip-flopping oscillates between those two rather
-  // than drifting further with each interrupt.
+  // moment, then head off the other way.
   function beginEaseOut(newSign) {
+    accumulator = 0;
+    pendingSign = 0;
+    if (!burst.playing) {
+      // Just crossed a clip boundary this tick — nothing is actually
+      // playing yet for this clip, so there's nothing to ease out of and
+      // its currentTime isn't positioned yet. Reverse immediately instead
+      // of reading stale state from an unstarted video element.
+      burst = reversalBurst(newSign);
+      return;
+    }
     const vid = burst.sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
     easing = {
       vid,
@@ -326,8 +346,6 @@
       newSign,
     };
     burst = null;
-    accumulator = 0;
-    pendingSign = 0;
   }
 
   function registerInput(deltaPxLike, now) {
@@ -369,17 +387,7 @@
 
       if (t >= 1) {
         easing.vid.pause();
-        const sign = easing.newSign;
-        // Target whichever of the two checkpoints bounding this excursion
-        // matches the new direction — the original destination if flipping
-        // back that way, otherwise the origin. Never drifts past either.
-        const targetCPIndex = sign === excursionBoundSign ? restingCPIndex + excursionBoundSign : restingCPIndex;
-        if (targetCPIndex >= 0 && targetCPIndex < CHECKPOINTS.length) {
-          burst = {
-            targetCPIndex, sign, playing: false,
-            rate: burstRate(restingCPIndex, restingCPIndex + excursionBoundSign),
-          };
-        }
+        burst = reversalBurst(easing.newSign);
         easing = null;
       }
 
@@ -407,9 +415,25 @@
           vid.playbackRate = burst.rate;
           vid.play().catch(() => {});
           burst.playing = true;
+          burst.lastVideoTime = undefined; // fresh stall-tracking for this clip segment
           setActive(activeIndex, sign < 0);
         }
         videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
+      }
+
+      // Safety net: if a seek/play stalls (e.g. a clip hasn't finished
+      // buffering — more likely now with 22 preloaded files instead of 11)
+      // and videoTime stops advancing, force this leg to complete rather
+      // than hang forever. Nothing in the engine had a timeout before this,
+      // so any stall meant a permanent freeze — input is blocked the whole
+      // time a burst is in flight.
+      if (!alreadyThere) {
+        if (burst.lastVideoTime === undefined || Math.abs(videoTime - burst.lastVideoTime) > 0.02) {
+          burst.lastVideoTime = videoTime;
+          burst.lastProgress = now;
+        } else if (now - burst.lastProgress > STALL_MS) {
+          videoTime = subTarget;
+        }
       }
 
       const reached = alreadyThere || (sign > 0

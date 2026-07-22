@@ -138,11 +138,14 @@
   <h1>Parlons de votre projet.</h1>
   <p class="subtext">Une question sur Maison Ambre, une visite à organiser — écrivez-nous, nous revenons vers vous rapidement.</p>
 
-  <!-- No backend on this static site: mailto/text-plain opens the visitor's
-       own mail client with the fields below pre-filled in the body. Works
-       with zero setup; the tradeoff is it requires the visitor to have a
-       mail client configured, rather than submitting silently server-side. -->
-  <form action="mailto:commercial@lumabat.eu" method="post" enctype="text/plain">
+  <!-- No backend on this static site: submit is intercepted in JS and turned
+       into a mailto: navigation (window.location.href), which opens the
+       visitor's own mail client with the fields below pre-filled. This is
+       more reliable across browsers than a plain <form action="mailto:">
+       POST, which several browsers now silently ignore. The remaining
+       tradeoff either way: it requires the visitor to have a mail client
+       configured, since there's no backend to submit to server-side. -->
+  <form id="contactForm">
     <div class="row">
       <div>
         <label for="name">Nom</label>
@@ -165,6 +168,30 @@
   </form>
 
   <p class="direct-contact">ou directement à <a href="mailto:commercial@lumabat.eu">commercial@lumabat.eu</a></p>
+
+  <script>
+    document.getElementById('contactForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const message = document.getElementById('message').value.trim();
+
+      const subject = 'Contact depuis lumabat.eu — ' + name;
+      const bodyLines = [
+        'Nom : ' + name,
+        'Email : ' + email,
+        phone ? 'Téléphone : ' + phone : null,
+        '',
+        message,
+      ].filter((line) => line !== null);
+
+      const mailto = 'mailto:commercial@lumabat.eu'
+        + '?subject=' + encodeURIComponent(subject)
+        + '&body=' + encodeURIComponent(bodyLines.join('\n'));
+      window.location.href = mailto;
+    });
+  </script>
 
 </body>
 </html>

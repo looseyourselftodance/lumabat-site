@@ -316,6 +316,18 @@
   let lastInputTime = 0;
   let paused = false;
 
+  // Tracks how "aggressive" recent scroll input has been (an exponential
+  // moving average of |delta| per input event, in the same px-like units as
+  // TRIGGER_THRESHOLD). A normal, unhurried scroll keeps this near
+  // NORMAL_DELTA and playback stays at native 1x; scrolling distinctly
+  // harder than that nudges the rate up, capped at SPEED_LIMIT so it's
+  // still a small boost, not a different film.
+  let scrollIntensity = 0;
+  const NORMAL_DELTA = 120;
+  const SPEED_LIMIT = 1.6;
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function currentRate() { return clamp(scrollIntensity / NORMAL_DELTA, PLAY_RATE, SPEED_LIMIT); }
+
   // The one piece of in-flight state. `otherEnd` is the checkpoint at the
   // far side of wherever this excursion is currently headed — reversing is
   // just swapping targetCPIndex and otherEnd, which is what makes repeated
@@ -363,7 +375,7 @@
     motion = {
       targetCPIndex,
       otherEnd: restingCPIndex,
-      rate: PLAY_RATE,
+      rate: currentRate(),
       playing: false,
       justReversed: false,
       lastVideoTime: undefined,
@@ -376,7 +388,7 @@
     const newTarget = motion.otherEnd;
     motion.otherEnd = motion.targetCPIndex;
     motion.targetCPIndex = newTarget;
-    motion.rate = PLAY_RATE;
+    motion.rate = currentRate();
     motion.playing = false;
     motion.justReversed = true; // next setActive() should be an instant cut, not a crossfade
     motion.lastVideoTime = undefined;
@@ -417,6 +429,9 @@
     if (deltaPxLike === 0) return;
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
+    // EMA rather than the raw delta, so one stray large event can't spike
+    // the rate — it takes a sustained harder scroll to actually ramp up.
+    scrollIntensity = scrollIntensity * 0.6 + Math.abs(deltaPxLike) * 0.4;
     if (paused) { exitPause(sign); return; }
     if (motion) {
       if (sign !== motionSign()) reverseInstantly();

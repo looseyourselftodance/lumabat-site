@@ -103,6 +103,35 @@
       font-size: 0.62rem; letter-spacing: 0.25em; text-transform: uppercase;
       color: rgba(248,247,244,0.4);
     }
+    /* Closing CTA row — only populated on the final checkpoint (see
+       enterPause()). Empty on every other checkpoint, so it takes no space. */
+    .checkpoint-text .cp-ctas {
+      display: flex; flex-wrap: wrap;
+      justify-content: center; gap: 0.8rem;
+      margin-top: 1.6rem;
+    }
+    .checkpoint-text .cp-ctas:empty { margin-top: 0; }
+    .cp-cta-btn {
+      pointer-events: auto;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: #F8F7F4; text-decoration: none;
+      border: 1px solid rgba(196,168,130,0.55);
+      border-radius: 2px;
+      padding: 0.7rem 1.3rem;
+      transition: background 0.25s ease, border-color 0.25s ease;
+    }
+    .cp-cta-btn:hover {
+      background: rgba(196,168,130,0.15);
+      border-color: var(--bronze-light);
+    }
+    .cp-cta-btn.primary {
+      background: var(--bronze-light);
+      color: #1A1A1A;
+      border-color: var(--bronze-light);
+    }
+    .cp-cta-btn.primary:hover { background: #d4bb96; }
 
     /* ── Opening hero: logo + headline, shown only at rest on checkpoint 0.
        Fades out the instant the film actually starts (see startMotion()) —
@@ -182,6 +211,7 @@
 <div class="checkpoint-text text-panel" id="checkpointText">
   <div class="cp-label" id="cpLabel"></div>
   <div class="cp-body" id="cpBody"></div>
+  <div class="cp-ctas" id="cpCtas"></div>
   <div class="cp-hint">scroll pour continuer</div>
 </div>
 
@@ -220,7 +250,12 @@
     { time: 41.000000, label: '05 — Le Garage',            body: 'Garage double, accès direct à la maison.' },
     { time: 58.933333, label: '06 — La Chambre',           body: 'Trois chambres au total. Suite parentale, terrasse partagée, coin soir.' },
     { time: 66.000000, label: '07 — Chambre Secondaire',   body: 'Chambres avec armoires intégrées, de 15 à 20 m².' },
-    { time: 80.933333, label: '08 — Retour à la Piscine',  body: 'La piscine, une dernière fois.' },
+    { time: 80.933333, label: '08 — Retour à la Piscine',  body: 'La piscine, une dernière fois.',
+      ctas: [
+        { label: 'En savoir plus',            href: 'index.html' },
+        { label: 'Voir le plan de la maison', href: 'plan-maison-ambre.pdf', blank: true },
+        { label: 'Contact',                   href: 'contact.html', primary: true },
+      ] },
   ];
 
   // Pacing is already baked into the footage at render time (this export,
@@ -240,6 +275,7 @@
   const checkpointTextEl = document.getElementById('checkpointText');
   const cpLabelEl = document.getElementById('cpLabel');
   const cpBodyEl = document.getElementById('cpBody');
+  const cpCtasEl = document.getElementById('cpCtas');
   const heroEl = document.getElementById('hero');
 
   fwd.playsInline = true;
@@ -295,6 +331,15 @@
     accumulator = 0;
     cpLabelEl.textContent = cp.label;
     cpBodyEl.textContent = cp.body;
+    cpCtasEl.innerHTML = ''; // cleared every time; only the final checkpoint repopulates it
+    (cp.ctas || []).forEach((cta) => {
+      const a = document.createElement('a');
+      a.className = 'cp-cta-btn' + (cta.primary ? ' primary' : '');
+      a.textContent = cta.label;
+      a.href = cta.href;
+      if (cta.blank) { a.target = '_blank'; a.rel = 'noopener'; }
+      cpCtasEl.appendChild(a);
+    });
     checkpointTextEl.classList.add('visible');
   }
 

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — LUMABAT</title>
+  <meta name="description" content="Contactez LUMABAT au sujet de Maison Ambre, à Toulouse." />
+  <link rel="icon" type="image/svg+xml" href="logo.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --dark: #1A1A1A;
+      --bronze-light: #C4A882;
+    }
+
+    html, body { min-height: 100%; background: var(--dark); }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #F8F7F4;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 4rem 1.25rem 5rem;
+    }
+
+    .back-link {
+      align-self: flex-start;
+      margin: 0 auto 3rem;
+      max-width: 520px;
+      width: 100%;
+      font-size: 0.68rem; letter-spacing: 0.2em; text-transform: uppercase;
+      color: rgba(248,247,244,0.55);
+      text-decoration: none;
+    }
+    .back-link:hover { color: var(--bronze-light); }
+
+    .logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 300;
+      font-size: 1.6rem;
+      letter-spacing: 0.35em;
+      margin-bottom: 0.9rem;
+    }
+    .logo .bat { color: var(--bronze-light); }
+
+    .rule {
+      width: 90px; height: 1px;
+      background: var(--bronze-light);
+      opacity: 0.6;
+      margin-bottom: 1.7rem;
+    }
+
+    h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 300;
+      font-size: clamp(2rem, 5vw, 2.8rem);
+      text-align: center;
+      margin-bottom: 0.8rem;
+    }
+    .subtext {
+      font-size: 0.85rem;
+      color: rgba(248,247,244,0.6);
+      text-align: center;
+      max-width: 420px;
+      margin-bottom: 2.8rem;
+      line-height: 1.6;
+    }
+
+    form {
+      width: 100%; max-width: 520px;
+      display: flex; flex-direction: column; gap: 1.3rem;
+    }
+    label {
+      display: block;
+      font-size: 0.64rem; letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--bronze-light);
+      margin-bottom: 0.55rem;
+    }
+    input, textarea {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(248,247,244,0.18);
+      border-radius: 2px;
+      padding: 0.85rem 1rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      color: #F8F7F4;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    input:focus, textarea:focus {
+      border-color: var(--bronze-light);
+      background: rgba(255,255,255,0.07);
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    ::placeholder { color: rgba(248,247,244,0.3); }
+
+    .row { display: flex; gap: 1.3rem; }
+    .row > div { flex: 1; }
+
+    button {
+      margin-top: 0.6rem;
+      align-self: center;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.72rem; font-weight: 500;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: #1A1A1A;
+      background: var(--bronze-light);
+      border: 1px solid var(--bronze-light);
+      border-radius: 2px;
+      padding: 0.95rem 2.6rem;
+      cursor: pointer;
+      transition: background 0.25s ease;
+    }
+    button:hover { background: #d4bb96; }
+
+    .direct-contact {
+      margin-top: 3rem;
+      text-align: center;
+      font-size: 0.78rem;
+      color: rgba(248,247,244,0.45);
+    }
+    .direct-contact a { color: var(--bronze-light); text-decoration: none; }
+    .direct-contact a:hover { text-decoration: underline; }
+
+    @media (max-width: 480px) {
+      .row { flex-direction: column; gap: 1.3rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <a class="back-link" href="index.html">← Retour à Maison Ambre</a>
+
+  <div class="logo">LUMA<span class="bat">BAT</span></div>
+  <div class="rule"></div>
+
+  <h1>Parlons de votre projet.</h1>
+  <p class="subtext">Une question sur Maison Ambre, une visite à organiser — écrivez-nous, nous revenons vers vous rapidement.</p>
+
+  <!-- No backend on this static site: mailto/text-plain opens the visitor's
+       own mail client with the fields below pre-filled in the body. Works
+       with zero setup; the tradeoff is it requires the visitor to have a
+       mail client configured, rather than submitting silently server-side. -->
+  <form action="mailto:commercial@lumabat.eu" method="post" enctype="text/plain">
+    <div class="row">
+      <div>
+        <label for="name">Nom</label>
+        <input type="text" id="name" name="Nom" placeholder="Votre nom" required />
+      </div>
+      <div>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="Email" placeholder="vous@exemple.com" required />
+      </div>
+    </div>
+    <div>
+      <label for="phone">Téléphone (optionnel)</label>
+      <input type="tel" id="phone" name="Telephone" placeholder="06 12 34 56 78" />
+    </div>
+    <div>
+      <label for="message">Message</label>
+      <textarea id="message" name="Message" placeholder="Votre message..." required></textarea>
+    </div>
+    <button type="submit">Envoyer</button>
+  </form>
+
+  <p class="direct-contact">ou directement à <a href="mailto:commercial@lumabat.eu">commercial@lumabat.eu</a></p>
+
+</body>
+</html>

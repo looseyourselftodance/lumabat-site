@@ -65,6 +65,16 @@
       transition: opacity 0.4s ease;
     }
 
+    /* Short-and-wide dark glass panel behind text overlays, so copy stays
+       legible over bright/busy frames without flattening the video itself. */
+    .text-panel {
+      background: rgba(20,17,15,0.42);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: 3px;
+      padding: 1.9rem 3.2rem;
+    }
+
     .checkpoint-text {
       position: fixed; left: 50%; bottom: 14%;
       transform: translate(-50%, 16px);
@@ -134,6 +144,13 @@
       max-width: 720px;
       padding: 0 1rem;
     }
+    .hero-specs {
+      margin-top: 0.9rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.72rem; font-weight: 500;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--bronze-light);
+    }
     .hero-hint {
       margin-top: 2.3rem;
       font-family: 'Inter', sans-serif;
@@ -154,12 +171,15 @@
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 <div class="hero" id="hero">
-  <div class="hero-logo">LUMA<span class="bat">BAT</span></div>
-  <div class="hero-rule"></div>
-  <div class="hero-headline">Une maison à Toulouse.</div>
-  <div class="hero-hint">scroll pour visiter</div>
+  <div class="text-panel">
+    <div class="hero-logo">LUMA<span class="bat">BAT</span></div>
+    <div class="hero-rule"></div>
+    <div class="hero-headline">Maison Ambre</div>
+    <div class="hero-specs">Trois chambres · Plain-pied · Piscine</div>
+  </div>
+  <div class="hero-hint">scroll pour explorer</div>
 </div>
-<div class="checkpoint-text" id="checkpointText">
+<div class="checkpoint-text text-panel" id="checkpointText">
   <div class="cp-label" id="cpLabel"></div>
   <div class="cp-body" id="cpBody"></div>
   <div class="cp-hint">scroll pour continuer</div>
@@ -193,13 +213,13 @@
   // opening position (silent — nothing to arrive at, no caption).
   const CHECKPOINTS = [
     { time: 0 },
-    { time: 7.000000,  label: '01 — La Terrasse',          body: 'Piscine et terrasse, pensées pour l’heure dorée.' },
-    { time: 18.133333, label: '02 — La Salle à Manger',    body: 'Un repas dehors, un repas dedans — les deux se répondent.' },
-    { time: 35.933333, label: '03 — La Buanderie',         body: 'Chaque espace a sa place, jusqu’au moindre détail.' },
-    { time: 41.000000, label: '04 — Le Garage',            body: 'Stationnement couvert, à deux pas de la maison.' },
-    { time: 58.933333, label: '05 — La Chambre',           body: 'La suite principale, baignée de lumière du soir.' },
-    { time: 66.000000, label: '06 — La Chambre',           body: 'Un coin bureau, une vue sur les arbres.' },
-    { time: 80.933333, label: '07 — Retour à la Piscine',  body: 'De retour au point de départ, au crépuscule.' },
+    { time: 7.000000,  label: '01 — La Terrasse',          body: 'Piscine à débordement, terrasse traversante.' },
+    { time: 18.133333, label: '02 — La Salle à Manger',    body: 'Baies coulissantes, continuité totale avec l’extérieur.' },
+    { time: 35.933333, label: '03 — La Buanderie',         body: 'Buanderie équipée, rangements sur mesure.' },
+    { time: 41.000000, label: '04 — Le Garage',            body: 'Garage double, accès direct à la maison.' },
+    { time: 58.933333, label: '05 — La Chambre',           body: 'Suite parentale, terrasse partagée, coin soir.' },
+    { time: 66.000000, label: '06 — Chambre Secondaire',   body: 'Coin bureau, vue dégagée sur la végétation.' },
+    { time: 80.933333, label: '07 — Retour à la Piscine',  body: 'La piscine, une dernière fois.' },
   ];
 
   // Pacing is already baked into the footage at render time (this export,

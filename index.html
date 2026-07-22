@@ -251,6 +251,18 @@
   let lastInputTime = 0;
   let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
+  let easing = null;          // { vid, startTime, fromRate, originalSign, newSign } — mid-flight direction change
+  // The direction (+1/-1) of whichever checkpoint this excursion originally
+  // set out for, from restingCPIndex — set once when a fresh burst leaves a
+  // rested state, left untouched across any number of interrupts. Lets a
+  // reversed trip be interrupted right back toward the original
+  // destination without assuming excursions always start forward.
+  let excursionBoundSign = 0;
+
+  // How long the deceleration takes when a mid-flight burst is interrupted
+  // by opposite-direction scroll — a fixed brake, not proportional to how
+  // hard the interrupting scroll was.
+  const INTERRUPT_EASE_MS = 300;
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -275,6 +287,7 @@
     if (cp.auto) {
       const nextIdx = cpIndex + sign;
       if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
+        excursionBoundSign = sign;
         burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
       }
     } else {
@@ -292,7 +305,29 @@
     checkpointTextEl.classList.remove('visible');
     const targetCPIndex = restingCPIndex + dismissSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return; // nothing further that way
+    excursionBoundSign = dismissSign;
     burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+  }
+
+  // Mid-flight direction change: don't wait for the current burst to reach
+  // its target. Brake the clip that's currently playing over a fixed
+  // moment, then head off the other way — bounded to the two checkpoints
+  // straddling this excursion (restingCPIndex and restingCPIndex +
+  // excursionBoundSign, whichever direction the trip originally set out
+  // in), so repeated flip-flopping oscillates between those two rather
+  // than drifting further with each interrupt.
+  function beginEaseOut(newSign) {
+    const vid = burst.sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
+    easing = {
+      vid,
+      startTime: performance.now(),
+      fromRate: vid.playbackRate || burst.rate,
+      originalSign: burst.sign,
+      newSign,
+    };
+    burst = null;
+    accumulator = 0;
+    pendingSign = 0;
   }
 
   function registerInput(deltaPxLike, now) {
@@ -300,6 +335,8 @@
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
     if (paused) { exitPause(sign); return; }
+    if (easing) return; // already braking, ignore input until it resolves
+    if (burst && sign !== burst.sign) { beginEaseOut(sign); return; }
     if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0;
     pendingSign = sign;
     accumulator += Math.abs(deltaPxLike);
@@ -307,8 +344,9 @@
   }
 
   // One good scroll commits to playing all the way to the next checkpoint —
-  // no further input needed, nothing can interrupt it partway. If there's
-  // no checkpoint further in that direction (e.g. scrolling back from the
+  // no further input needed. Opposite-direction input mid-flight doesn't
+  // "interrupt" this directly — see beginEaseOut(). If there's no
+  // checkpoint further in that direction (e.g. scrolling back from the
   // very start), this simply does nothing instead of firing a zero-distance
   // "arrival".
   function maybeStartBurst() {
@@ -316,10 +354,40 @@
     const targetCPIndex = restingCPIndex + pendingSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
     accumulator = 0;
+    excursionBoundSign = pendingSign;
     burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function tick(now) {
+    if (easing) {
+      const t = clamp((now - easing.startTime) / INTERRUPT_EASE_MS, 0, 1);
+      easing.vid.playbackRate = Math.max(easing.fromRate * (1 - t), 0.03);
+      videoTime = clamp(
+        easing.originalSign > 0 ? easing.vid.currentTime : revTime(activeIndex, easing.vid.currentTime),
+        0, clipDuration(activeIndex)
+      );
+
+      if (t >= 1) {
+        easing.vid.pause();
+        const sign = easing.newSign;
+        // Target whichever of the two checkpoints bounding this excursion
+        // matches the new direction — the original destination if flipping
+        // back that way, otherwise the origin. Never drifts past either.
+        const targetCPIndex = sign === excursionBoundSign ? restingCPIndex + excursionBoundSign : restingCPIndex;
+        if (targetCPIndex >= 0 && targetCPIndex < CHECKPOINTS.length) {
+          burst = {
+            targetCPIndex, sign, playing: false,
+            rate: burstRate(restingCPIndex, restingCPIndex + excursionBoundSign),
+          };
+        }
+        easing = null;
+      }
+
+      updateProgress();
+      requestAnimationFrame(tick);
+      return;
+    }
+
     if (burst) {
       const tgt = CHECKPOINTS[burst.targetCPIndex];
       const atTargetClip = activeIndex === tgt.clip;

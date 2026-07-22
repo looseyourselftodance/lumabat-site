@@ -78,7 +78,7 @@
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
       border-radius: 3px;
-      padding: 1.4rem 1.7rem;
+      padding: 1.05rem 1.7rem;
       width: min(380px, 78vw);
     }
 
@@ -138,16 +138,10 @@
       transition: opacity 1.4s ease, transform 1.4s ease; /* long, slow fade rather than a quick pop */
     }
     .checkpoint-text.visible { opacity: 1; transform: translateY(0); }
-    .checkpoint-text .cp-label {
-      font-family: 'Inter', sans-serif;
-      font-size: 0.7rem; font-weight: 500;
-      letter-spacing: 0.3em; text-transform: uppercase;
-      color: var(--bronze-light); margin-bottom: 0.9rem;
-    }
     .checkpoint-text .cp-body {
       font-family: 'Cormorant Garamond', serif;
       font-size: clamp(1.3rem, 3vw, 2.1rem);
-      font-weight: 300; line-height: 1.4;
+      font-weight: 300; line-height: 1.15;
       color: #F8F7F4;
       text-shadow: 0 2px 20px rgba(0,0,0,0.5);
     }
@@ -285,7 +279,6 @@
   </div>
 </div>
 <div class="checkpoint-text text-panel" id="checkpointText">
-  <div class="cp-label" id="cpLabel"></div>
   <div class="cp-body" id="cpBody"></div>
   <div class="cp-ctas" id="cpCtas"></div>
   <div class="cp-hint">scroll pour continuer</div>
@@ -358,7 +351,6 @@
   const loadingLabel = document.getElementById('loadingLabel');
   const progressFill = document.getElementById('progressFill');
   const checkpointTextEl = document.getElementById('checkpointText');
-  const cpLabelEl = document.getElementById('cpLabel');
   const cpBodyEl = document.getElementById('cpBody');
   const cpCtasEl = document.getElementById('cpCtas');
   const heroEl = document.getElementById('hero');
@@ -453,7 +445,6 @@
     if (!cp.label) return; // waypoint with nothing to show — just rest silently
     paused = true;
     accumulator = 0;
-    cpLabelEl.textContent = cp.label;
     cpBodyEl.textContent = cp.body;
     cpCtasEl.innerHTML = ''; // cleared every time; only the final checkpoint repopulates it
     (cp.ctas || []).forEach((cta) => {

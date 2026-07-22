@@ -93,6 +93,53 @@
       font-size: 0.62rem; letter-spacing: 0.25em; text-transform: uppercase;
       color: rgba(248,247,244,0.4);
     }
+
+    /* ── Opening hero: logo + headline, shown only at rest on checkpoint 0.
+       Fades out the instant the film actually starts (see startMotion()) —
+       vertically centered rather than bottom-third like the checkpoint
+       captions, since this is a landing moment, not a scene annotation. ── */
+    .hero {
+      position: fixed; inset: 0;
+      z-index: 55;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.6s ease;
+    }
+    .hero.hidden { opacity: 0; }
+    .hero-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 300;
+      font-size: clamp(1.5rem, 4vw, 2.4rem);
+      letter-spacing: 0.35em;
+      color: #F8F7F4;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    }
+    .hero-logo .bat { color: var(--bronze-light); }
+    .hero-rule {
+      width: 110px; height: 1px;
+      background: var(--bronze-light);
+      opacity: 0.6;
+      margin: 1.2rem 0 1.7rem;
+    }
+    .hero-headline {
+      font-family: 'Cormorant Garamond', serif;
+      font-weight: 300;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 1.25;
+      color: #F8F7F4;
+      text-shadow: 0 2px 24px rgba(0,0,0,0.55);
+      max-width: 720px;
+      padding: 0 1rem;
+    }
+    .hero-hint {
+      margin-top: 2.3rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.62rem; letter-spacing: 0.25em; text-transform: uppercase;
+      color: rgba(248,247,244,0.5);
+    }
   </style>
 </head>
 <body>
@@ -106,10 +153,16 @@
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+<div class="hero" id="hero">
+  <div class="hero-logo">LUMA<span class="bat">BAT</span></div>
+  <div class="hero-rule"></div>
+  <div class="hero-headline">Une maison à Toulouse.</div>
+  <div class="hero-hint">scroll pour visiter</div>
+</div>
 <div class="checkpoint-text" id="checkpointText">
   <div class="cp-label" id="cpLabel"></div>
   <div class="cp-body" id="cpBody"></div>
-  <div class="cp-hint">scroll to continue</div>
+  <div class="cp-hint">scroll pour continuer</div>
 </div>
 
 <script>
@@ -166,6 +219,7 @@
   const checkpointTextEl = document.getElementById('checkpointText');
   const cpLabelEl = document.getElementById('cpLabel');
   const cpBodyEl = document.getElementById('cpBody');
+  const heroEl = document.getElementById('hero');
 
   fwd.playsInline = true;
   rev.playsInline = true;
@@ -239,6 +293,7 @@
 
   function startMotion(targetCPIndex) {
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return;
+    heroEl.classList.add('hidden'); // the film has actually started — no-op after the first time
     motion = {
       targetCPIndex,
       otherEnd: restingCPIndex,

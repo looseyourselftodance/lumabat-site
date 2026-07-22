@@ -178,12 +178,12 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   const IDLE_MS = 150;
-  // Backward has no native reverse-playback API, so it's driven by rapidly
-  // seeking instead — seconds of footage stepped per second of real time.
-  const REVERSE_RATE = 1;
-  // How far a dismiss-scroll nudges the playhead before resuming — needs to
-  // cross out of the exact boundary frame, not jump far.
-  const DISMISS_NUDGE = 0.05;
+  // Backward has no native reverse-playback API, so it's driven by seeking
+  // instead. Each step waits for the browser's own `seeked` event before
+  // requesting the next one, so every step is guaranteed to actually
+  // decode and render — no throttle-guessing, no coalesced/invisible seeks.
+  const SEEK_STEP = 0.15; // seconds of footage per confirmed step
+  const SEEK_STALL_MS = 500; // safety release if `seeked` never fires
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function clipDuration(i) { return CLIPS[i].duration; }
@@ -197,6 +197,12 @@
   const cpBodyEl = document.getElementById('cpBody');
 
   videos.forEach((v) => { v.playsInline = true; });
+
+  let seekPending = false;
+  let seekPendingSince = 0;
+  videos.forEach((v) => {
+    v.addEventListener('seeked', () => { seekPending = false; });
+  });
 
   let ready = false;
   videos[0].addEventListener('loadeddata', () => {
@@ -226,7 +232,6 @@
   let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
   let lastTickTime = null;
-  let lastSeekTime = 0;
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -238,23 +243,17 @@
     checkpointTextEl.classList.add('visible');
   }
 
+  // Dismissing a pause must *itself* continue the film — not just step past
+  // the boundary and wait for a second, separate scroll gesture to actually
+  // move. That gap (repositioning silently, then requiring another full
+  // scroll before anything visibly happens) is what read as "stuck".
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
     checkpointTextEl.classList.remove('visible');
-    const newTime = videoTime + DISMISS_NUDGE * dismissSign;
-    if (newTime > clipDuration(activeIndex) && activeIndex < CLIPS.length - 1) {
-      activeIndex++; videoTime = 0;
-      videos[activeIndex].currentTime = 0;
-      setActive(activeIndex);
-    } else if (newTime < 0 && activeIndex > 0) {
-      activeIndex--; videoTime = clipDuration(activeIndex);
-      videos[activeIndex].currentTime = videoTime;
-      setActive(activeIndex);
-    } else {
-      videoTime = clamp(newTime, 0, clipDuration(activeIndex));
-      videos[activeIndex].currentTime = videoTime;
-    }
+    const targetCPIndex = restingCPIndex + dismissSign;
+    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return; // nothing further that way
+    burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function registerInput(deltaPxLike, now) {
@@ -322,13 +321,15 @@
           }
           videoTime = vid.currentTime;
         } else {
-          videoTime = clamp(videoTime - dt * REVERSE_RATE * burst.rate, 0, clipDuration(activeIndex));
-          // Throttle actual seeks — browsers can't decode/repaint a seek
-          // every ~16ms, so firing them that fast just gets coalesced into
-          // one big jump at the end. Spacing them out lets each one render.
-          if (now - lastSeekTime > 80) {
+          // Only request the next seek once the browser confirms the
+          // previous one actually rendered (`seeked` fired) — guarantees
+          // every step is visible instead of hoping a fixed delay is enough.
+          const stalled = seekPending && (now - seekPendingSince > SEEK_STALL_MS);
+          if (!seekPending || stalled) {
+            videoTime = clamp(videoTime - SEEK_STEP, 0, clipDuration(activeIndex));
             vid.currentTime = videoTime;
-            lastSeekTime = now;
+            seekPending = true;
+            seekPendingSince = now;
           }
         }
       }
@@ -342,6 +343,7 @@
         videoTime = subTarget;
         vid.currentTime = videoTime;
 
+        seekPending = false;
         if (atTargetClip) {
           arriveAt(burst.targetCPIndex, burst.sign);
         } else {

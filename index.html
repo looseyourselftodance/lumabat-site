@@ -133,15 +133,23 @@
   // The page opens at clip 1's first frame — a film waiting to be played.
   // Scroll input never moves anything directly; it accumulates, and once
   // enough has built up ("one good scroll"), it commits to playing straight
-  // through to the next (or previous) checkpoint. Checkpoints no longer
-  // have to sit on clip boundaries — a burst can span multiple clips in one
-  // continuous motion, switching the active <video> seamlessly as it goes.
+  // through to the next (or previous) checkpoint. Checkpoints don't have to
+  // sit on clip boundaries — one motion can span multiple clips, switching
+  // the active <video> seamlessly as it goes.
   //
   // Backward: <video> has no negative playbackRate, so true reverse
   // playback isn't possible on the forward file. Instead each clip has a
   // pre-rendered reversed twin (frames in reverse order); playing that
   // twin forward looks exactly like the original rewinding, with genuine
   // native decode in both directions.
+  //
+  // All in-flight state lives in ONE object, `motion` (see below), instead
+  // of several separately-tracked flags — fewer places for state to drift
+  // out of sync, and the whole tick loop is wrapped in try/catch so a bug
+  // here can never again silently kill the animation loop (that's the most
+  // likely real explanation for past "freezes": an uncaught error stops
+  // requestAnimationFrame from ever being called again, with no visible
+  // error to the user).
 
   const CLIPS = [
     { file: 'videos/01.mp4', duration: 10 },
@@ -180,10 +188,16 @@
     { clip: 10, time: 15,   label: '07 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
   ];
 
+  function elapsedBefore(idx) {
+    let s = 0;
+    for (let i = 0; i < idx; i++) s += CLIPS[i].duration;
+    return s;
+  }
+  function timelinePos(cp) { return elapsedBefore(cp.clip) + cp.time; }
+
   // Precompute how much footage (seconds) each checkpoint-to-checkpoint
   // segment covers, so playbackRate can be derived to fit it into
-  // SEGMENT_SECONDS regardless of direction.
-  function timelinePos(cp) { return elapsedBefore(cp.clip) + cp.time; }
+  // SEGMENT_SECONDS.
   const SEGMENT_DURATIONS = [];
   for (let i = 0; i < CHECKPOINTS.length - 1; i++) {
     SEGMENT_DURATIONS.push(timelinePos(CHECKPOINTS[i + 1]) - timelinePos(CHECKPOINTS[i]));
@@ -193,8 +207,9 @@
   // more than this (e.g. the ~30s checkpoint 2→3 span) simply take longer
   // than SEGMENT_SECONDS rather than sacrifice smoothness.
   const MAX_RATE = 4;
-  function burstRate(fromIdx, toIdx) {
-    const seg = Math.min(fromIdx, toIdx);
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function segmentRate(a, b) {
+    const seg = Math.min(a, b);
     return clamp(SEGMENT_DURATIONS[seg] / SEGMENT_SECONDS, 0.0625, MAX_RATE);
   }
 
@@ -203,14 +218,19 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   const IDLE_MS = 150;
+  // Fixed brake duration when a mid-flight motion is interrupted by
+  // opposite-direction scroll — not proportional to scroll intensity.
+  const BRAKE_MS = 300;
+  // If a motion's video stops advancing for this long (stalled buffering,
+  // failed seek, etc.), force it to complete rather than block input
+  // indefinitely.
+  const STALL_MS = 1200;
 
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function clipDuration(i) { return CLIPS[i].duration; }
   // Maps a position in the forward clip's timeline to the equivalent
   // position in its reversed twin's own timeline (frame order is flipped).
   function revTime(clipIdx, t) { return clipDuration(clipIdx) - t; }
 
-  const stage = document.getElementById('stage');
   const videos = Array.from(document.querySelectorAll('.clip:not([data-rev])'));
   const videosRev = Array.from(document.querySelectorAll('.clip[data-rev]'));
   const loadingLabel = document.getElementById('loadingLabel');
@@ -229,11 +249,6 @@
     loadingLabel.style.opacity = '0';
   }, { once: true });
 
-  function elapsedBefore(idx) {
-    let s = 0;
-    for (let i = 0; i < idx; i++) s += CLIPS[i].duration;
-    return s;
-  }
   function updateProgress() {
     progressFill.style.width = ((elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100) + '%';
   }
@@ -249,24 +264,19 @@
   let accumulator = 0;
   let pendingSign = 0;
   let lastInputTime = 0;
-  let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
-  let easing = null;          // { vid, startTime, fromRate, originalSign, newSign } — mid-flight direction change
-  // The direction (+1/-1) of whichever checkpoint this excursion originally
-  // set out for, from restingCPIndex — set once when a fresh burst leaves a
-  // rested state, left untouched across any number of interrupts. Lets a
-  // reversed trip be interrupted right back toward the original
-  // destination without assuming excursions always start forward.
-  let excursionBoundSign = 0;
 
-  // How long the deceleration takes when a mid-flight burst is interrupted
-  // by opposite-direction scroll — a fixed brake, not proportional to how
-  // hard the interrupting scroll was.
-  const INTERRUPT_EASE_MS = 300;
-  // If a burst's video stops advancing for this long (stalled buffering,
-  // failed seek, etc.), force it to complete rather than block input
-  // indefinitely — see the stall-guard in tick().
-  const STALL_MS = 1200;
+  // The one piece of in-flight state. `otherEnd` is the checkpoint at the
+  // far side of wherever this excursion is currently headed — reversing is
+  // just swapping targetCPIndex and otherEnd, which is what makes repeated
+  // direction changes correctly bounce between the same two checkpoints
+  // instead of drifting, with no separately-tracked direction flag needed.
+  let motion = null;
+  // motion = {
+  //   targetCPIndex, otherEnd, rate, playing,
+  //   brake: null | { startTime, fromRate, vid },
+  //   lastVideoTime, lastProgress,
+  // }
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -283,69 +293,73 @@
   // and the next trigger in either direction start from a consistent state.
   function arriveAt(cpIndex, sign) {
     restingCPIndex = cpIndex;
-    burst = null;
+    motion = null;
     videos[activeIndex].pause();
     videos[activeIndex].currentTime = videoTime;
     setActive(activeIndex, false);
     const cp = CHECKPOINTS[cpIndex];
-    if (cp.auto) {
-      const nextIdx = cpIndex + sign;
-      if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
-        excursionBoundSign = sign;
-        burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
-      }
-    } else {
-      enterPause(cpIndex);
-    }
+    if (cp.auto) startMotion(cpIndex + sign);
+    else enterPause(cpIndex);
+  }
+
+  function startMotion(targetCPIndex) {
+    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return;
+    motion = {
+      targetCPIndex,
+      otherEnd: restingCPIndex,
+      rate: segmentRate(restingCPIndex, targetCPIndex),
+      playing: false,
+      brake: null,
+      lastVideoTime: undefined,
+      lastProgress: 0,
+    };
+  }
+
+  // Swaps target and origin — this is the entire "reverse direction" logic.
+  function reverseMotion() {
+    const rate = segmentRate(motion.otherEnd, motion.targetCPIndex);
+    const newTarget = motion.otherEnd;
+    motion.otherEnd = motion.targetCPIndex;
+    motion.targetCPIndex = newTarget;
+    motion.rate = rate;
+    motion.brake = null;
+    motion.playing = false;
+    motion.lastVideoTime = undefined;
   }
 
   // Dismissing a pause must *itself* continue the film — not just step past
   // the boundary and wait for a second, separate scroll gesture to actually
-  // move. That gap (repositioning silently, then requiring another full
-  // scroll before anything visibly happens) is what read as "stuck".
+  // move.
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
     checkpointTextEl.classList.remove('visible');
-    const targetCPIndex = restingCPIndex + dismissSign;
-    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return; // nothing further that way
-    excursionBoundSign = dismissSign;
-    burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+    startMotion(restingCPIndex + dismissSign);
   }
 
-  // Target whichever of the two checkpoints bounding the current excursion
-  // matches `sign` — the original destination if flipping back that way,
-  // otherwise the origin. Never drifts past either even with repeated
-  // flip-flopping.
-  function reversalBurst(sign) {
-    const targetCPIndex = sign === excursionBoundSign ? restingCPIndex + excursionBoundSign : restingCPIndex;
-    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return null;
-    return { targetCPIndex, sign, playing: false, rate: burstRate(restingCPIndex, restingCPIndex + excursionBoundSign) };
+  function currentTimelinePos() { return elapsedBefore(activeIndex) + videoTime; }
+  function motionSign() {
+    const d = timelinePos(CHECKPOINTS[motion.targetCPIndex]) - currentTimelinePos();
+    return d > 0.01 ? 1 : d < -0.01 ? -1 : 0;
   }
 
-  // Mid-flight direction change: don't wait for the current burst to reach
+  // Mid-flight direction change: don't wait for the current motion to reach
   // its target. Brake the clip that's currently playing over a fixed
   // moment, then head off the other way.
-  function beginEaseOut(newSign) {
-    accumulator = 0;
-    pendingSign = 0;
-    if (!burst.playing) {
+  function beginBrake() {
+    if (!motion.playing) {
       // Just crossed a clip boundary this tick — nothing is actually
       // playing yet for this clip, so there's nothing to ease out of and
       // its currentTime isn't positioned yet. Reverse immediately instead
       // of reading stale state from an unstarted video element.
-      burst = reversalBurst(newSign);
-      return;
+      reverseMotion();
+    } else {
+      const sign = motionSign();
+      const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
+      motion.brake = { startTime: performance.now(), fromRate: vid.playbackRate || motion.rate, vid };
     }
-    const vid = burst.sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
-    easing = {
-      vid,
-      startTime: performance.now(),
-      fromRate: vid.playbackRate || burst.rate,
-      originalSign: burst.sign,
-      newSign,
-    };
-    burst = null;
+    accumulator = 0;
+    pendingSign = 0;
   }
 
   function registerInput(deltaPxLike, now) {
@@ -353,109 +367,98 @@
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
     if (paused) { exitPause(sign); return; }
-    if (easing) return; // already braking, ignore input until it resolves
-    if (burst && sign !== burst.sign) { beginEaseOut(sign); return; }
+    if (motion) {
+      if (!motion.brake && sign !== motionSign()) beginBrake();
+      return; // already in flight (or braking) — no accumulator-based re-trigger needed
+    }
     if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0;
     pendingSign = sign;
     accumulator += Math.abs(deltaPxLike);
-    maybeStartBurst();
+    if (accumulator >= TRIGGER_THRESHOLD && pendingSign !== 0) {
+      accumulator = 0;
+      startMotion(restingCPIndex + pendingSign);
+    }
   }
 
-  // One good scroll commits to playing all the way to the next checkpoint —
-  // no further input needed. Opposite-direction input mid-flight doesn't
-  // "interrupt" this directly — see beginEaseOut(). If there's no
-  // checkpoint further in that direction (e.g. scrolling back from the
-  // very start), this simply does nothing instead of firing a zero-distance
-  // "arrival".
-  function maybeStartBurst() {
-    if (burst || paused || accumulator < TRIGGER_THRESHOLD || pendingSign === 0) return;
-    const targetCPIndex = restingCPIndex + pendingSign;
-    if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
-    accumulator = 0;
-    excursionBoundSign = pendingSign;
-    burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+  function handleBrake(now) {
+    const b = motion.brake;
+    const t = clamp((now - b.startTime) / BRAKE_MS, 0, 1);
+    b.vid.playbackRate = Math.max(b.fromRate * (1 - t), 0.03);
+    const forward = b.vid === videos[activeIndex];
+    videoTime = clamp(
+      forward ? b.vid.currentTime : revTime(activeIndex, b.vid.currentTime),
+      0, clipDuration(activeIndex)
+    );
+    if (t >= 1) {
+      b.vid.pause();
+      reverseMotion();
+    }
+  }
+
+  function handleMotion(now) {
+    const tgt = CHECKPOINTS[motion.targetCPIndex];
+    const sign = motionSign();
+    if (sign === 0) { arriveAt(motion.targetCPIndex, sign); return; }
+
+    const atTargetClip = activeIndex === tgt.clip;
+    const subTarget = atTargetClip ? tgt.time : (sign > 0 ? clipDuration(activeIndex) : 0);
+    const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
+
+    // Already sitting exactly at this clip's sub-target (e.g. we just
+    // arrived here at its very last frame, about to hop to the next clip)
+    // — skip play() entirely. Calling play() on a clip already at its
+    // end/start is a real edge case that can make it silently rewind and
+    // replay instead of advancing.
+    const alreadyThere = sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.03;
+
+    if (!alreadyThere) {
+      if (!motion.playing) {
+        vid.currentTime = sign > 0 ? videoTime : revTime(activeIndex, videoTime);
+        vid.playbackRate = motion.rate;
+        vid.play().catch(() => {});
+        motion.playing = true;
+        motion.lastVideoTime = undefined;
+        setActive(activeIndex, sign < 0);
+      }
+      videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
+
+      // Stall guard: force this leg to complete if videoTime stops
+      // advancing (stalled buffering, failed seek, etc.) instead of
+      // blocking input forever.
+      if (motion.lastVideoTime === undefined || Math.abs(videoTime - motion.lastVideoTime) > 0.02) {
+        motion.lastVideoTime = videoTime;
+        motion.lastProgress = now;
+      } else if (now - motion.lastProgress > STALL_MS) {
+        videoTime = subTarget;
+      }
+    }
+
+    const reached = alreadyThere || (sign > 0
+      ? (videoTime >= subTarget - 0.03 || vid.ended)
+      : (videoTime <= subTarget + 0.03 || vid.ended));
+
+    if (reached) {
+      vid.pause();
+      videoTime = subTarget;
+      if (atTargetClip) {
+        arriveAt(motion.targetCPIndex, sign);
+      } else {
+        activeIndex += sign;
+        videoTime = sign > 0 ? 0 : clipDuration(activeIndex);
+        motion.playing = false;
+      }
+    }
   }
 
   function tick(now) {
-    if (easing) {
-      const t = clamp((now - easing.startTime) / INTERRUPT_EASE_MS, 0, 1);
-      easing.vid.playbackRate = Math.max(easing.fromRate * (1 - t), 0.03);
-      videoTime = clamp(
-        easing.originalSign > 0 ? easing.vid.currentTime : revTime(activeIndex, easing.vid.currentTime),
-        0, clipDuration(activeIndex)
-      );
-
-      if (t >= 1) {
-        easing.vid.pause();
-        burst = reversalBurst(easing.newSign);
-        easing = null;
-      }
-
-      updateProgress();
-      requestAnimationFrame(tick);
-      return;
+    try {
+      if (motion && motion.brake) handleBrake(now);
+      else if (motion) handleMotion(now);
+      else if (!paused && now - lastInputTime > IDLE_MS) accumulator = 0;
+    } catch (err) {
+      console.error('tick error, resetting motion state:', err);
+      motion = null;
     }
-
-    if (burst) {
-      const tgt = CHECKPOINTS[burst.targetCPIndex];
-      const atTargetClip = activeIndex === tgt.clip;
-      const sign = burst.sign;
-      const subTarget = atTargetClip ? tgt.time : (sign > 0 ? clipDuration(activeIndex) : 0);
-      const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
-
-      // Already sitting exactly at this clip's sub-target (e.g. we just
-      // arrived here at its very last frame) — skip play() entirely.
-      // Calling play() on a clip already at its end/start is what caused
-      // clip 1 to silently rewind and replay instead of advancing.
-      const alreadyThere = sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.03;
-
-      if (!alreadyThere) {
-        if (!burst.playing) {
-          vid.currentTime = sign > 0 ? videoTime : revTime(activeIndex, videoTime);
-          vid.playbackRate = burst.rate;
-          vid.play().catch(() => {});
-          burst.playing = true;
-          burst.lastVideoTime = undefined; // fresh stall-tracking for this clip segment
-          setActive(activeIndex, sign < 0);
-        }
-        videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
-      }
-
-      // Safety net: if a seek/play stalls (e.g. a clip hasn't finished
-      // buffering — more likely now with 22 preloaded files instead of 11)
-      // and videoTime stops advancing, force this leg to complete rather
-      // than hang forever. Nothing in the engine had a timeout before this,
-      // so any stall meant a permanent freeze — input is blocked the whole
-      // time a burst is in flight.
-      if (!alreadyThere) {
-        if (burst.lastVideoTime === undefined || Math.abs(videoTime - burst.lastVideoTime) > 0.02) {
-          burst.lastVideoTime = videoTime;
-          burst.lastProgress = now;
-        } else if (now - burst.lastProgress > STALL_MS) {
-          videoTime = subTarget;
-        }
-      }
-
-      const reached = alreadyThere || (sign > 0
-        ? (videoTime >= subTarget - 0.03 || vid.ended)
-        : (videoTime <= subTarget + 0.03 || vid.ended));
-
-      if (reached) {
-        vid.pause();
-        videoTime = subTarget;
-
-        if (atTargetClip) {
-          arriveAt(burst.targetCPIndex, sign);
-        } else {
-          activeIndex += sign;
-          videoTime = sign > 0 ? 0 : clipDuration(activeIndex);
-          burst.playing = false;
-        }
-      }
-    } else if (!paused && now - lastInputTime > IDLE_MS) {
-      accumulator = 0;
-    }
-
     updateProgress();
     requestAnimationFrame(tick);
   }

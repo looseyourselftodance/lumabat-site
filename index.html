@@ -226,6 +226,7 @@
   let burst = null;           // { targetCPIndex, sign, playing }
   let paused = false;
   let lastTickTime = null;
+  let lastSeekTime = 0;
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -305,22 +306,36 @@
       const subTarget = atTargetClip ? tgt.time : (burst.sign > 0 ? clipDuration(activeIndex) : 0);
       const vid = videos[activeIndex];
 
-      if (burst.sign > 0) {
-        if (!burst.playing) {
-          vid.currentTime = videoTime;
-          vid.playbackRate = burst.rate;
-          vid.play().catch(() => {});
-          burst.playing = true;
+      // Already sitting exactly at this clip's sub-target (e.g. we just
+      // arrived here at its very last frame) — skip play()/seek entirely.
+      // Calling play() on a clip already at its end is what caused clip 1
+      // to silently rewind and replay instead of advancing to clip 2.
+      const alreadyThere = burst.sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.01;
+
+      if (!alreadyThere) {
+        if (burst.sign > 0) {
+          if (!burst.playing) {
+            vid.currentTime = videoTime;
+            vid.playbackRate = burst.rate;
+            vid.play().catch(() => {});
+            burst.playing = true;
+          }
+          videoTime = vid.currentTime;
+        } else {
+          videoTime = clamp(videoTime - dt * REVERSE_RATE * burst.rate, 0, clipDuration(activeIndex));
+          // Throttle actual seeks — browsers can't decode/repaint a seek
+          // every ~16ms, so firing them that fast just gets coalesced into
+          // one big jump at the end. Spacing them out lets each one render.
+          if (now - lastSeekTime > 80) {
+            vid.currentTime = videoTime;
+            lastSeekTime = now;
+          }
         }
-        videoTime = vid.currentTime;
-      } else {
-        videoTime = clamp(videoTime - dt * REVERSE_RATE * burst.rate, 0, clipDuration(activeIndex));
-        vid.currentTime = videoTime;
       }
 
-      const reached = burst.sign > 0
+      const reached = alreadyThere || (burst.sign > 0
         ? (videoTime >= subTarget - 0.03 || vid.ended)
-        : videoTime <= subTarget + 0.01;
+        : videoTime <= subTarget + 0.01);
 
       if (reached) {
         vid.pause();

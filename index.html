@@ -261,8 +261,14 @@
   <video class="clip active" id="fwdVideo" src="videos/tour.mp4" muted playsinline preload="auto"></video>
   <!-- Reversed twin: same footage, frames in reverse order. Playing this
        forward looks exactly like the original rewinding — genuine native
-       decode either direction, since <video> has no negative playbackRate. -->
-  <video class="clip" id="revVideo" src="videos/tour-rev.mp4" muted playsinline preload="auto"></video>
+       decode either direction, since <video> has no negative playbackRate.
+       preload starts at "metadata" (not "auto") and is promoted to "auto"
+       in JS once the forward video is actually ready — see readyGate()
+       below. Two videos fighting over bandwidth for a simultaneous 85MB
+       preload was the direct cause of the video never appearing on
+       mobile: the forward one (the only one needed to show anything at
+       all) could stall behind the reversed one indefinitely. -->
+  <video class="clip" id="revVideo" src="videos/tour-rev.mp4" muted playsinline preload="metadata"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -351,12 +357,27 @@
   fwd.playsInline = true;
   rev.playsInline = true;
 
+  // Mobile browsers (especially over cellular) are inconsistent about
+  // honoring preload="auto" and about which readiness event actually
+  // fires — some skip straight to 'canplay' without ever firing
+  // 'loadeddata'. Listening for either, plus a hard timeout fallback, is
+  // what actually guarantees the loading label goes away instead of
+  // getting stuck forever if the network is just being slow/restrictive.
   let ready = false;
-  fwd.addEventListener('loadeddata', () => {
+  function markReady() {
     if (ready) return;
     ready = true;
     loadingLabel.style.opacity = '0';
-  }, { once: true });
+    // Only start pulling the (also large) reversed twin once the forward
+    // video the page actually opens on is already usable, so the two
+    // don't compete for bandwidth on first load.
+    rev.preload = 'auto';
+    rev.load();
+  }
+  fwd.addEventListener('loadeddata', markReady, { once: true });
+  fwd.addEventListener('canplay', markReady, { once: true });
+  setTimeout(markReady, 8000);
+  fwd.load();
 
   let lastProgressPct = -1;
   function updateProgress() {

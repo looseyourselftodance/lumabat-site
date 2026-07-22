@@ -222,9 +222,6 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   const IDLE_MS = 150;
-  // Fixed brake duration when a mid-flight motion is interrupted by
-  // opposite-direction scroll — not proportional to scroll intensity.
-  const BRAKE_MS = 300;
   // If a motion's video stops advancing for this long (stalled buffering,
   // failed seek, etc.), force it to complete rather than block input
   // indefinitely.
@@ -300,11 +297,7 @@
   // direction changes correctly bounce between the same two checkpoints
   // instead of drifting, with no separately-tracked direction flag needed.
   let motion = null;
-  // motion = {
-  //   targetCPIndex, otherEnd, rate, playing,
-  //   brake: null | { startTime, fromRate, vid },
-  //   lastVideoTime, lastProgress,
-  // }
+  // motion = { targetCPIndex, otherEnd, rate, playing, lastVideoTime, lastProgress }
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -338,7 +331,6 @@
       otherEnd: restingCPIndex,
       rate: segmentRate(restingCPIndex, targetCPIndex),
       playing: false,
-      brake: null,
       lastVideoTime: undefined,
       lastProgress: 0,
     };
@@ -351,7 +343,6 @@
     motion.otherEnd = motion.targetCPIndex;
     motion.targetCPIndex = newTarget;
     motion.rate = rate;
-    motion.brake = null;
     motion.playing = false;
     motion.lastVideoTime = undefined;
   }
@@ -372,23 +363,17 @@
     return d > 0.01 ? 1 : d < -0.01 ? -1 : 0;
   }
 
-  // Mid-flight direction change: don't wait for the current motion to reach
-  // its target. Brake the clip that's currently playing over a fixed
-  // moment, then head off the other way.
-  function beginBrake() {
-    if (!motion.playing) {
-      // Just crossed a clip boundary this tick — nothing is actually
-      // playing yet for this clip, so there's nothing to ease out of and
-      // its currentTime isn't positioned yet. Reverse immediately instead
-      // of reading stale state from an unstarted video element.
-      reverseMotion();
-    } else {
-      const sign = motionSign();
-      const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
-      motion.brake = { startTime: performance.now(), fromRate: vid.playbackRate || motion.rate, vid };
+  // Mid-flight direction change: instant, no brake. Now that seeks are fast
+  // (keyframe re-encode), switching straight to the other clip/direction
+  // already looks smooth — a fixed brake delay was reading as lag,
+  // especially on small scrolls. Pauses whichever element is currently
+  // playing (if anything's actually started yet) and swaps target/origin.
+  function reverseInstantly() {
+    if (motion.playing) {
+      const curVid = motionSign() > 0 ? videos[activeIndex] : videosRev[activeIndex];
+      curVid.pause();
     }
-    accumulator = 0;
-    pendingSign = 0;
+    reverseMotion();
   }
 
   function registerInput(deltaPxLike, now) {
@@ -397,8 +382,10 @@
     lastInputTime = now;
     if (paused) { exitPause(sign); return; }
     if (motion) {
-      if (!motion.brake && sign !== motionSign()) beginBrake();
-      return; // already in flight (or braking) — no accumulator-based re-trigger needed
+      if (sign !== motionSign()) reverseInstantly();
+      accumulator = 0;
+      pendingSign = 0;
+      return;
     }
     if (pendingSign !== 0 && sign !== pendingSign) accumulator = 0;
     pendingSign = sign;
@@ -406,21 +393,6 @@
     if (accumulator >= TRIGGER_THRESHOLD && pendingSign !== 0) {
       accumulator = 0;
       startMotion(restingCPIndex + pendingSign);
-    }
-  }
-
-  function handleBrake(now) {
-    const b = motion.brake;
-    const t = clamp((now - b.startTime) / BRAKE_MS, 0, 1);
-    b.vid.playbackRate = Math.max(b.fromRate * (1 - t), 0.03);
-    const forward = b.vid === videos[activeIndex];
-    videoTime = clamp(
-      forward ? b.vid.currentTime : revTime(activeIndex, b.vid.currentTime),
-      0, clipDuration(activeIndex)
-    );
-    if (t >= 1) {
-      b.vid.pause();
-      reverseMotion();
     }
   }
 
@@ -482,8 +454,7 @@
 
   function tick(now) {
     try {
-      if (motion && motion.brake) handleBrake(now);
-      else if (motion) handleMotion(now);
+      if (motion) handleMotion(now);
       else if (!paused && now - lastInputTime > IDLE_MS) accumulator = 0;
     } catch (err) {
       console.error('tick error, resetting motion state:', err);

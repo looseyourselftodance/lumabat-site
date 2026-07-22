@@ -150,20 +150,6 @@
          the couple of genuinely long two-sentence captions still wrap,
          which is correct rather than letting them overflow the panel. */
     }
-    /* Replaces the old "scroll pour continuer" text line — just an icon,
-       and only after 3s of inactivity at this checkpoint (see the
-       hintTimer logic in enterPause()/exitPause()), so the panel doesn't
-       carry that extra line's width/height for the common case of someone
-       reading the caption and moving on quickly. */
-    .checkpoint-text .cp-hint-icon {
-      margin-top: 1.1rem;
-      font-size: 0.95rem; line-height: 1;
-      color: var(--bronze-light);
-      opacity: 0;
-      transition: opacity 1.2s ease;
-      animation: scrollCueBounce 2s ease-in-out infinite;
-    }
-    .checkpoint-text .cp-hint-icon.visible { opacity: 0.85; }
     /* Closing CTA row — only populated on the final checkpoint (see
        enterPause()). Empty on every other checkpoint, so it takes no space. */
     .checkpoint-text .cp-ctas {
@@ -194,12 +180,12 @@
     }
     .cp-cta-btn.primary:hover { background: #d4bb96; }
 
-    /* ── Opening scroll cue: no headline anymore, just a "scroll down"
-       nudge at the bottom, shown only at rest on checkpoint 0. Stays
-       invisible for the first 2s after load (see the setTimeout in the
-       script) rather than appearing immediately, then fades in slowly —
-       and fades back out just as slowly the instant the film actually
-       starts (see startMotion()). ── */
+    /* ── Idle scroll cue: "Scroll" + a bouncing arrow, centered at the
+       bottom of the screen — independent of the caption panel, not
+       attached to it. Shown at rest on checkpoint 0 (after 2s) and again
+       at every subsequent checkpoint pause (after 3s of inactivity — see
+       armIdleCue() in the script), fading in slowly and fading back out
+       just as slowly the instant any motion actually starts. ── */
     .hero {
       position: fixed; inset: 0;
       z-index: 55;
@@ -294,7 +280,6 @@
 <div class="checkpoint-text text-panel" id="checkpointText">
   <div class="cp-body" id="cpBody"></div>
   <div class="cp-ctas" id="cpCtas"></div>
-  <div class="cp-hint-icon" id="cpHintIcon">↓</div>
 </div>
 
 <script>
@@ -366,7 +351,6 @@
   const checkpointTextEl = document.getElementById('checkpointText');
   const cpBodyEl = document.getElementById('cpBody');
   const cpCtasEl = document.getElementById('cpCtas');
-  const cpHintIconEl = document.getElementById('cpHintIcon');
   const heroEl = document.getElementById('hero');
   const headerLogoEl = document.getElementById('headerLogo');
   const headerRestartEl = document.getElementById('headerRestart');
@@ -398,9 +382,18 @@
   setTimeout(markReady, 8000);
   fwd.load();
 
-  // Scroll-down cue stays invisible for the first 2s (let the film's
-  // opening shot land on its own first), then fades in slowly.
-  setTimeout(() => heroEl.classList.add('visible'), 2000);
+  // Idle scroll cue ("Scroll" + bouncing arrow, the .hero element) — shown
+  // whenever nothing's happening: at rest on load, and again at every
+  // checkpoint pause (see enterPause()). armIdleCue() always clears any
+  // previous timer first, so arriving at a new checkpoint (or dismissing
+  // one) can't leave a stale timer from an earlier stop still pending.
+  let idleCueTimer = null;
+  function armIdleCue(delayMs) {
+    clearTimeout(idleCueTimer);
+    heroEl.classList.remove('visible');
+    idleCueTimer = setTimeout(() => heroEl.classList.add('visible'), delayMs);
+  }
+  armIdleCue(2000); // first appearance: let the film's opening shot land on its own for 2s before nudging
 
   let lastProgressPct = -1;
   function updateProgress() {
@@ -454,17 +447,6 @@
   let motion = null;
   // motion = { targetCPIndex, otherEnd, targetRate, curRate, playing, justReversed, lastVideoTime, lastProgress }
 
-  // Only shown after 3s of sitting idle at a checkpoint — cleared on
-  // dismiss (exitPause) and reset on each new arrival (enterPause), so it
-  // never lingers from a previous stop or shows before the user's had a
-  // moment to actually read the caption.
-  let hintTimer = null;
-  function armHintIcon() {
-    clearTimeout(hintTimer);
-    cpHintIconEl.classList.remove('visible');
-    hintTimer = setTimeout(() => cpHintIconEl.classList.add('visible'), 3000);
-  }
-
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
     if (!cp.label) return; // waypoint with nothing to show — just rest silently
@@ -486,7 +468,7 @@
       cpCtasEl.appendChild(a);
     });
     checkpointTextEl.classList.add('visible');
-    armHintIcon();
+    armIdleCue(3000);
   }
 
   // Jumps straight back to the opening hero without a full page reload —
@@ -504,10 +486,8 @@
     rev.pause();
     fwd.currentTime = 0;
     setActive(false, true);
-    clearTimeout(hintTimer);
-    cpHintIconEl.classList.remove('visible');
     checkpointTextEl.classList.remove('visible');
-    heroEl.classList.add('visible'); // reappears immediately on an explicit restart — no need to replay the 2s delay
+    armIdleCue(2000); // same delay as the very first load
   }
 
   // Always come to rest on the forward element (paused, positioned
@@ -526,7 +506,8 @@
 
   function startMotion(targetCPIndex) {
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return;
-    heroEl.classList.remove('visible'); // the film has actually started — no-op after the first time
+    clearTimeout(idleCueTimer); // cancel a pending show too, not just hide an already-visible one
+    heroEl.classList.remove('visible'); // motion is actually starting — no-op if it wasn't showing
     motion = {
       targetCPIndex,
       otherEnd: restingCPIndex,
@@ -556,10 +537,8 @@
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
-    clearTimeout(hintTimer);
-    cpHintIconEl.classList.remove('visible');
     checkpointTextEl.classList.remove('visible');
-    startMotion(restingCPIndex + dismissSign);
+    startMotion(restingCPIndex + dismissSign); // also cancels/hides the idle cue, see startMotion()
   }
 
   function motionSign() {

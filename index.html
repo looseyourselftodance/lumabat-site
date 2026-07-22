@@ -168,9 +168,14 @@
   for (let i = 0; i < CHECKPOINTS.length - 1; i++) {
     SEGMENT_DURATIONS.push(timelinePos(CHECKPOINTS[i + 1]) - timelinePos(CHECKPOINTS[i]));
   }
+  // Capped at 4x — real video decoders start dropping frames above that,
+  // which looks choppy even with genuine native playback. Segments needing
+  // more than this (e.g. the ~30s checkpoint 2→3 span) simply take longer
+  // than SEGMENT_SECONDS rather than sacrifice smoothness.
+  const MAX_RATE = 4;
   function burstRate(fromIdx, toIdx) {
     const seg = Math.min(fromIdx, toIdx);
-    return clamp(SEGMENT_DURATIONS[seg] / SEGMENT_SECONDS, 0.0625, 16);
+    return clamp(SEGMENT_DURATIONS[seg] / SEGMENT_SECONDS, 0.0625, MAX_RATE);
   }
 
   // How much accumulated scroll (px) is needed to trigger a checkpoint —
@@ -178,12 +183,10 @@
   const TRIGGER_THRESHOLD = 260;
   const TOUCH_MULTIPLIER = 2.2;
   const IDLE_MS = 150;
-  // Backward has no native reverse-playback API, so it's driven by seeking
-  // instead. Each step waits for the browser's own `seeked` event before
-  // requesting the next one, so every step is guaranteed to actually
-  // decode and render — no throttle-guessing, no coalesced/invisible seeks.
-  const SEEK_STEP = 0.15; // seconds of footage per confirmed step
-  const SEEK_STALL_MS = 500; // safety release if `seeked` never fires
+  // Backward has no native reverse-playback API at all — any seek-driven
+  // simulation is fundamentally stepped, not fluid. Rather than fake a
+  // choppy "rewind", backward is an instant cut straight to the previous
+  // checkpoint's frame instead.
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function clipDuration(i) { return CLIPS[i].duration; }
@@ -197,12 +200,6 @@
   const cpBodyEl = document.getElementById('cpBody');
 
   videos.forEach((v) => { v.playsInline = true; });
-
-  let seekPending = false;
-  let seekPendingSince = 0;
-  videos.forEach((v) => {
-    v.addEventListener('seeked', () => { seekPending = false; });
-  });
 
   let ready = false;
   videos[0].addEventListener('loadeddata', () => {
@@ -243,6 +240,19 @@
     checkpointTextEl.classList.add('visible');
   }
 
+  // Backward is an instant cut to the target checkpoint's clip+time — no
+  // simulated reverse playback, since that can only ever be stepped, never
+  // truly fluid. Forward keeps playing through normally.
+  function jumpTo(cpIndex, sign) {
+    videos[activeIndex].pause();
+    const tgt = CHECKPOINTS[cpIndex];
+    activeIndex = tgt.clip;
+    videoTime = tgt.time;
+    videos[activeIndex].currentTime = videoTime;
+    setActive(activeIndex);
+    arriveAt(cpIndex, sign);
+  }
+
   // Dismissing a pause must *itself* continue the film — not just step past
   // the boundary and wait for a second, separate scroll gesture to actually
   // move. That gap (repositioning silently, then requiring another full
@@ -253,7 +263,8 @@
     checkpointTextEl.classList.remove('visible');
     const targetCPIndex = restingCPIndex + dismissSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return; // nothing further that way
-    burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+    if (dismissSign < 0) jumpTo(targetCPIndex, dismissSign);
+    else burst = { targetCPIndex, sign: dismissSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function registerInput(deltaPxLike, now) {
@@ -277,7 +288,8 @@
     const targetCPIndex = restingCPIndex + pendingSign;
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) { accumulator = 0; return; }
     accumulator = 0;
-    burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
+    if (pendingSign < 0) jumpTo(targetCPIndex, pendingSign);
+    else burst = { targetCPIndex, sign: pendingSign, playing: false, rate: burstRate(restingCPIndex, targetCPIndex) };
   }
 
   function arriveAt(cpIndex, sign) {
@@ -287,7 +299,8 @@
     if (cp.auto) {
       const nextIdx = cpIndex + sign;
       if (nextIdx >= 0 && nextIdx < CHECKPOINTS.length) {
-        burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
+        if (sign < 0) jumpTo(nextIdx, sign);
+        else burst = { targetCPIndex: nextIdx, sign, playing: false, rate: burstRate(cpIndex, nextIdx) };
       }
     } else {
       enterPause(cpIndex);
@@ -300,56 +313,40 @@
     lastTickTime = now;
 
     if (burst) {
+      // Forward only — backward is an instant jumpTo(), never a lingering
+      // burst. See jumpTo() above.
       const tgt = CHECKPOINTS[burst.targetCPIndex];
       const atTargetClip = activeIndex === tgt.clip;
-      const subTarget = atTargetClip ? tgt.time : (burst.sign > 0 ? clipDuration(activeIndex) : 0);
+      const subTarget = atTargetClip ? tgt.time : clipDuration(activeIndex);
       const vid = videos[activeIndex];
 
       // Already sitting exactly at this clip's sub-target (e.g. we just
-      // arrived here at its very last frame) — skip play()/seek entirely.
+      // arrived here at its very last frame) — skip play() entirely.
       // Calling play() on a clip already at its end is what caused clip 1
       // to silently rewind and replay instead of advancing to clip 2.
-      const alreadyThere = burst.sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.01;
+      const alreadyThere = videoTime >= subTarget - 0.03;
 
-      if (!alreadyThere) {
-        if (burst.sign > 0) {
-          if (!burst.playing) {
-            vid.currentTime = videoTime;
-            vid.playbackRate = burst.rate;
-            vid.play().catch(() => {});
-            burst.playing = true;
-          }
-          videoTime = vid.currentTime;
-        } else {
-          // Only request the next seek once the browser confirms the
-          // previous one actually rendered (`seeked` fired) — guarantees
-          // every step is visible instead of hoping a fixed delay is enough.
-          const stalled = seekPending && (now - seekPendingSince > SEEK_STALL_MS);
-          if (!seekPending || stalled) {
-            videoTime = clamp(videoTime - SEEK_STEP, 0, clipDuration(activeIndex));
-            vid.currentTime = videoTime;
-            seekPending = true;
-            seekPendingSince = now;
-          }
-        }
+      if (!alreadyThere && !burst.playing) {
+        vid.currentTime = videoTime;
+        vid.playbackRate = burst.rate;
+        vid.play().catch(() => {});
+        burst.playing = true;
       }
+      if (!alreadyThere) videoTime = vid.currentTime;
 
-      const reached = alreadyThere || (burst.sign > 0
-        ? (videoTime >= subTarget - 0.03 || vid.ended)
-        : videoTime <= subTarget + 0.01);
+      const reached = alreadyThere || videoTime >= subTarget - 0.03 || vid.ended;
 
       if (reached) {
         vid.pause();
         videoTime = subTarget;
         vid.currentTime = videoTime;
 
-        seekPending = false;
         if (atTargetClip) {
           arriveAt(burst.targetCPIndex, burst.sign);
         } else {
-          activeIndex += burst.sign;
-          videoTime = burst.sign > 0 ? 0 : clipDuration(activeIndex);
-          videos[activeIndex].currentTime = videoTime;
+          activeIndex += 1;
+          videoTime = 0;
+          videos[activeIndex].currentTime = 0;
           setActive(activeIndex);
           burst.playing = false;
         }

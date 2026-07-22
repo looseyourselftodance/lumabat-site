@@ -557,8 +557,27 @@
         vid.play().catch(() => {});
         motion.playing = true;
         motion.lastVideoTime = undefined;
-        setActive(sign < 0, motion.justReversed);
+
+        // Don't reveal this element until the browser confirms the seek
+        // above has actually rendered — revealing immediately (the old
+        // behavior) could show whatever stale frame this element was
+        // last parked at, for however long the seek/decode takes. That's
+        // most visible under rapid reversals: fwd/rev keep toggling
+        // faster than either one's seek can catch up, so what's actually
+        // on screen ends up frames (sometimes many seconds) behind. A
+        // 150ms fallback keeps this from ever blocking on a seek that,
+        // for whatever reason, never fires 'seeked'.
+        const justReversed = motion.justReversed;
         motion.justReversed = false;
+        let revealed = false;
+        const reveal = () => {
+          if (revealed) return;
+          revealed = true;
+          vid.removeEventListener('seeked', reveal);
+          setActive(sign < 0, justReversed);
+        };
+        vid.addEventListener('seeked', reveal, { once: true });
+        setTimeout(reveal, 150);
       }
 
       // Ease curRate toward whatever overscrolling set as the target (the

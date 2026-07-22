@@ -39,6 +39,11 @@
       transition: opacity 0.4s ease;
     }
     .clip.active { opacity: 1; z-index: 2; }
+    /* Used for a split second when swapping forward<->reversed on the same
+       clip (a direction reversal) — that swap should be a clean cut, not a
+       crossfade, since a blend there just shows two near-identical frames
+       overlapping instead of a seamless continuation. */
+    .clip.instant { transition: none; }
 
     .progress-track {
       position: fixed; left: 0; right: 0; bottom: 0;
@@ -277,10 +282,22 @@
     lastProgressPct = pct;
     progressFill.style.width = pct + '%';
   }
-  // useReversed picks which of the two <video>s for this clip index is shown.
-  function setActive(idx, useReversed) {
+  // useReversed picks which of the two <video>s for this clip index is
+  // shown. `instant` skips the crossfade — used specifically for a
+  // same-clip direction reversal, where forward/reversed should show
+  // essentially the same frame and a blend would just look like overlap.
+  function setActive(idx, useReversed, instant) {
+    if (instant) {
+      videos.forEach((v) => v.classList.add('instant'));
+      videosRev.forEach((v) => v.classList.add('instant'));
+    }
     videos.forEach((v, i) => v.classList.toggle('active', !useReversed && i === idx));
     videosRev.forEach((v, i) => v.classList.toggle('active', !!useReversed && i === idx));
+    if (instant) {
+      void videos[idx].offsetHeight; // force layout so transition:none applies before it's removed
+      videos.forEach((v) => v.classList.remove('instant'));
+      videosRev.forEach((v) => v.classList.remove('instant'));
+    }
   }
 
   let activeIndex = 0;
@@ -318,7 +335,7 @@
     warmAround(activeIndex);
     videos[activeIndex].pause();
     videos[activeIndex].currentTime = videoTime;
-    setActive(activeIndex, false);
+    setActive(activeIndex, false, sign < 0); // arriving backward = was showing the reversed twin, swap to forward instantly
     const cp = CHECKPOINTS[cpIndex];
     if (cp.auto) startMotion(cpIndex + sign);
     else enterPause(cpIndex);
@@ -331,6 +348,7 @@
       otherEnd: restingCPIndex,
       rate: segmentRate(restingCPIndex, targetCPIndex),
       playing: false,
+      justReversed: false,
       lastVideoTime: undefined,
       lastProgress: 0,
     };
@@ -344,6 +362,7 @@
     motion.targetCPIndex = newTarget;
     motion.rate = rate;
     motion.playing = false;
+    motion.justReversed = true; // next setActive() for this clip should be an instant cut, not a crossfade
     motion.lastVideoTime = undefined;
   }
 
@@ -419,7 +438,8 @@
         vid.play().catch(() => {});
         motion.playing = true;
         motion.lastVideoTime = undefined;
-        setActive(activeIndex, sign < 0);
+        setActive(activeIndex, sign < 0, motion.justReversed);
+        motion.justReversed = false;
       }
       videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
 

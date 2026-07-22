@@ -196,21 +196,6 @@
       transition: opacity 0.6s ease;
     }
     .hero.hidden { opacity: 0; }
-    .hero-logo {
-      font-family: 'Cormorant Garamond', serif;
-      font-weight: 300;
-      font-size: clamp(1.5rem, 4vw, 2.4rem);
-      letter-spacing: 0.35em;
-      color: #F8F7F4;
-      text-shadow: 0 2px 20px rgba(0,0,0,0.5);
-    }
-    .hero-logo .bat { color: var(--bronze-light); }
-    .hero-rule {
-      width: 110px; height: 1px;
-      background: var(--bronze-light);
-      opacity: 0.6;
-      margin: 1.2rem 0 1.7rem;
-    }
     .hero-headline {
       font-family: 'Cormorant Garamond', serif;
       font-weight: 300;
@@ -257,8 +242,6 @@
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 <div class="hero" id="hero">
   <div class="text-panel">
-    <div class="hero-logo">LUMA<span class="bat">BAT</span></div>
-    <div class="hero-rule"></div>
     <div class="hero-headline">Maison Ambre</div>
     <div class="hero-specs">Trois chambres · Plain-pied · Piscine</div>
   </div>
@@ -376,23 +359,21 @@
   let lastInputTime = 0;
   let paused = false;
 
-  // Tracks how "aggressive" recent scroll input has been — px of input
-  // accumulated, continuously decaying with a short half-life (see tick()).
-  // This (not a plain per-event average) is what makes it correctly read
-  // trackpads as aggressive too: a fast trackpad flick fires many *small*
-  // deltas in quick succession, and a per-event average would see each one
-  // as mild; summing-with-decay instead reflects total recent px moved,
-  // which is high either way for a genuinely fast gesture. A normal,
-  // unhurried scroll keeps this near NORMAL_DELTA and playback stays at
-  // native 1x; scrolling distinctly harder nudges the rate up, capped at
-  // SPEED_LIMIT so it's a small boost, not a different film.
-  let scrollIntensity = 0;
-  let lastTickTime = 0;
-  const NORMAL_DELTA = 140;
-  const SPEED_LIMIT = 1.6;
-  const INTENSITY_HALFLIFE_MS = 220;
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-  function currentRate() { return clamp(scrollIntensity / NORMAL_DELTA, PLAY_RATE, SPEED_LIMIT); }
+  // ── Overscroll speed: eased ramp up, eased glide down (preset 2) ──
+  // "Overscrolling" here means input keeps arriving while a motion is
+  // already committed and playing — by definition scroll beyond what was
+  // needed to trigger the move. Detecting it just bumps a *target* rate;
+  // the actual applied rate chases that target smoothly every frame
+  // (ACCEL_EASE), so acceleration itself always feels eased, never a snap.
+  // The target rate holds at full aggression all the way until the
+  // checkpoint is close, at which point a second easing curve — based on
+  // remaining footage-time, not remaining scroll input — pulls the
+  // *applied* rate back down toward native 1x so every arrival is a smooth
+  // glide to a stop regardless of how fast this leg got mid-flight.
+  const AGGRESSIVE_RATE = 3.5;    // target rate while genuinely overscrolling
+  const ACCEL_EASE = 0.10;        // per-frame chase toward targetRate (higher = snappier ramp)
+  const DECEL_WINDOW_SEC = 1.0;   // start easing the *applied* rate back to 1x within this much footage-time of arrival
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
 
   // The one piece of in-flight state. `otherEnd` is the checkpoint at the
   // far side of wherever this excursion is currently headed — reversing is
@@ -400,7 +381,7 @@
   // direction changes correctly bounce between the same two checkpoints
   // instead of drifting, with no separately-tracked direction flag needed.
   let motion = null;
-  // motion = { targetCPIndex, otherEnd, rate, playing, justReversed, lastVideoTime, lastProgress }
+  // motion = { targetCPIndex, otherEnd, targetRate, curRate, playing, justReversed, lastVideoTime, lastProgress }
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -435,7 +416,6 @@
     paused = false;
     accumulator = 0;
     pendingSign = 0;
-    scrollIntensity = 0;
     videoTime = 0;
     restingCPIndex = 0;
     fwd.pause();
@@ -466,7 +446,8 @@
     motion = {
       targetCPIndex,
       otherEnd: restingCPIndex,
-      rate: currentRate(),
+      targetRate: PLAY_RATE,
+      curRate: PLAY_RATE,
       playing: false,
       justReversed: false,
       lastVideoTime: undefined,
@@ -479,7 +460,8 @@
     const newTarget = motion.otherEnd;
     motion.otherEnd = motion.targetCPIndex;
     motion.targetCPIndex = newTarget;
-    motion.rate = currentRate();
+    motion.targetRate = PLAY_RATE; // fresh leg — no carried-over speed from the one that just reversed
+    motion.curRate = PLAY_RATE;
     motion.playing = false;
     motion.justReversed = true; // next setActive() should be an instant cut, not a crossfade
     motion.lastVideoTime = undefined;
@@ -520,18 +502,16 @@
     if (deltaPxLike === 0) return;
     const sign = Math.sign(deltaPxLike);
     lastInputTime = now;
-    // Accumulates (decays continuously in tick(), not blended per-event) —
-    // see the scrollIntensity declaration above for why.
-    scrollIntensity += Math.abs(deltaPxLike);
     if (paused) { exitPause(sign); return; }
     if (motion) {
       if (sign !== motionSign()) {
         reverseInstantly();
       } else {
-        // "Overscrolling" in the same direction as an already-playing
-        // motion: let it speed up live rather than only mattering at the
-        // moment the segment started (still capped at SPEED_LIMIT).
-        motion.rate = currentRate();
+        // Overscrolling: input arriving on top of an already-committed,
+        // already-playing motion. Bump the *target* — handleMotion() eases
+        // curRate toward it every frame, so the ramp itself is always
+        // smooth even though this jump to the target is immediate.
+        motion.targetRate = AGGRESSIVE_RATE;
       }
       accumulator = 0;
       pendingSign = 0;
@@ -573,18 +553,22 @@
     if (!alreadyThere) {
       if (!motion.playing) {
         vid.currentTime = sign > 0 ? videoTime : revTime(videoTime);
-        vid.playbackRate = motion.rate;
         vid.play().catch(() => {});
         motion.playing = true;
         motion.lastVideoTime = undefined;
         setActive(sign < 0, motion.justReversed);
         motion.justReversed = false;
-      } else if (vid.playbackRate !== motion.rate) {
-        // Continued aggressive scrolling can bump motion.rate mid-flight
-        // (see registerInput) — reflect that on the actually-playing
-        // element right away instead of only at the next leg's start.
-        vid.playbackRate = motion.rate;
       }
+
+      // Ease curRate toward whatever overscrolling set as the target (the
+      // acceleration itself), then separately ease the *applied* rate back
+      // down toward native as the checkpoint gets close (the glide to a
+      // stop) — two independent easing curves, recomputed every frame.
+      motion.curRate += (motion.targetRate - motion.curRate) * ACCEL_EASE;
+      const remainingSec = Math.abs(subTarget - videoTime);
+      const decel = remainingSec < DECEL_WINDOW_SEC ? smoothstep(remainingSec / DECEL_WINDOW_SEC) : 1;
+      vid.playbackRate = PLAY_RATE + (motion.curRate - PLAY_RATE) * decel;
+
       videoTime = sign > 0 ? vid.currentTime : revTime(vid.currentTime);
 
       // Stall guard: force this leg to complete if videoTime stops
@@ -610,10 +594,6 @@
   }
 
   function tick(now) {
-    if (lastTickTime) {
-      scrollIntensity *= Math.pow(0.5, (now - lastTickTime) / INTENSITY_HALFLIFE_MS);
-    }
-    lastTickTime = now;
     try {
       if (motion) handleMotion(now);
       else if (!paused && now - lastInputTime > IDLE_MS) accumulator = 0;

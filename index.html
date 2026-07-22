@@ -39,10 +39,10 @@
       transition: opacity 0.4s ease;
     }
     .clip.active { opacity: 1; z-index: 2; }
-    /* Used for a split second when swapping forward<->reversed on the same
-       clip (a direction reversal) — that swap should be a clean cut, not a
-       crossfade, since a blend there just shows two near-identical frames
-       overlapping instead of a seamless continuation. */
+    /* Used for a split second when swapping forward<->reversed (a direction
+       reversal) — that swap should be a clean cut, not a crossfade, since a
+       blend there just shows two near-identical frames overlapping instead
+       of a seamless continuation. */
     .clip.instant { transition: none; }
 
     .progress-track {
@@ -65,7 +65,6 @@
       transition: opacity 0.4s ease;
     }
 
-    /* ── Checkpoint caption (placeholder copy — draft pass) ── */
     .checkpoint-text {
       position: fixed; left: 50%; bottom: 14%;
       transform: translate(-50%, 16px);
@@ -99,35 +98,11 @@
 <body>
 
 <div id="stage">
-  <video class="clip active" data-index="0" src="videos/01.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="1" src="videos/02.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="2" src="videos/03.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="3" src="videos/04.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="4" src="videos/05.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="5" src="videos/06.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="6" src="videos/07.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="7" src="videos/08.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="8" src="videos/09.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="9" src="videos/10.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="10" src="videos/11.mp4" muted playsinline preload="none"></video>
-  <!-- Reversed twins: same content, frames in reverse order. Playing these
-       forward looks exactly like the original playing backward — genuine
-       native decode either way, since <video> has no reverse playbackRate.
-       Only clip 0's pair preloads eagerly; the rest warm up dynamically as
-       we approach them (see warmAround() in the script) — keeping only a
-       handful of the 22 files buffered at once instead of all of them
-       fighting for decode/network bandwidth simultaneously. -->
-  <video class="clip" data-index="0" data-rev src="videos/01r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="1" data-rev src="videos/02r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="2" data-rev src="videos/03r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="3" data-rev src="videos/04r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="4" data-rev src="videos/05r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="5" data-rev src="videos/06r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="6" data-rev src="videos/07r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="7" data-rev src="videos/08r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="8" data-rev src="videos/09r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="9" data-rev src="videos/10r.mp4" muted playsinline preload="none"></video>
-  <video class="clip" data-index="10" data-rev src="videos/11r.mp4" muted playsinline preload="none"></video>
+  <video class="clip active" id="fwdVideo" src="videos/tour.mp4" muted playsinline preload="auto"></video>
+  <!-- Reversed twin: same footage, frames in reverse order. Playing this
+       forward looks exactly like the original rewinding — genuine native
+       decode either direction, since <video> has no negative playbackRate. -->
+  <video class="clip" id="revVideo" src="videos/tour-rev.mp4" muted playsinline preload="auto"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -138,83 +113,55 @@
 </div>
 
 <script>
-  // ── Real-video trigger-and-play engine, curated checkpoints ──
-  // The page opens at clip 1's first frame — a film waiting to be played.
-  // Scroll input never moves anything directly; it accumulates, and once
-  // enough has built up ("one good scroll"), it commits to playing straight
-  // through to the next (or previous) checkpoint. Checkpoints don't have to
-  // sit on clip boundaries — one motion can span multiple clips, switching
-  // the active <video> seamlessly as it goes.
+  // ── Real-video trigger-and-play engine, single unified take ──
+  // One continuous 82s video replaces the old 11-clip set, so the whole
+  // engine collapses to a single timeline in seconds — no clip index, no
+  // clip-boundary crossing, no per-clip warm-up. Scroll input never moves
+  // anything directly; it accumulates, and once enough has built up ("one
+  // good scroll"), it commits to playing straight through to the next (or
+  // previous) checkpoint at a fixed pace.
   //
   // Backward: <video> has no negative playbackRate, so true reverse
-  // playback isn't possible on the forward file. Instead each clip has a
-  // pre-rendered reversed twin (frames in reverse order); playing that
-  // twin forward looks exactly like the original rewinding, with genuine
-  // native decode in both directions.
+  // playback isn't possible on the forward file. Instead a pre-rendered
+  // reversed twin (frames in reverse order) plays *forward* to simulate it,
+  // with genuine native decode in both directions.
   //
-  // All in-flight state lives in ONE object, `motion` (see below), instead
-  // of several separately-tracked flags — fewer places for state to drift
-  // out of sync, and the whole tick loop is wrapped in try/catch so a bug
-  // here can never again silently kill the animation loop (that's the most
-  // likely real explanation for past "freezes": an uncaught error stops
-  // requestAnimationFrame from ever being called again, with no visible
-  // error to the user).
+  // All in-flight state lives in ONE object, `motion`, and the whole tick
+  // loop is wrapped in try/catch so a bug here can never again silently
+  // kill the animation loop (the most likely real explanation for past
+  // "freezes": an uncaught error stops requestAnimationFrame from ever
+  // being called again, with no visible error to the user).
 
-  const CLIPS = [
-    { file: 'videos/01.mp4', duration: 10 },
-    { file: 'videos/02.mp4', duration: 20 },
-    { file: 'videos/03.mp4', duration: 20 },
-    { file: 'videos/04.mp4', duration: 1 },
-    { file: 'videos/05.mp4', duration: 20 },
-    { file: 'videos/06.mp4', duration: 1 },
-    { file: 'videos/07.mp4', duration: 8 },
-    { file: 'videos/08.mp4', duration: 8 },
-    { file: 'videos/09.mp4', duration: 10 },
-    { file: 'videos/10.mp4', duration: 1 },
-    { file: 'videos/11.mp4', duration: 15 },
-  ];
-  const TOTAL_DURATION = CLIPS.reduce((s, c) => s + c.duration, 0);
+  const TOTAL_DURATION = 82; // seconds, from ffprobe — hardcoded to avoid a metadata-load race
 
   // Every checkpoint-to-checkpoint segment takes exactly this many real
-  // seconds, no matter how much footage it covers — a short 1s connector
-  // clip plays in slow motion, a 30s segment plays back very fast, both
-  // land on the next checkpoint at the same pace (capped by MAX_RATE).
+  // seconds, no matter how much footage it covers.
   const SEGMENT_SECONDS = 3;
 
-  // Curated checkpoints (clip index is 0-based: clip 0 = videos/01.mp4).
-  // `label`/`body` = placeholder caption (null = no pause, just a waypoint).
-  // `auto: true` = on arrival, immediately continue to the next checkpoint
-  // instead of pausing — used for checkpoint 8's mid-clip auto-advance.
+  // Checkpoints found by scanning the actual footage: each time is the
+  // objectively sharpest frame (lowest ffmpeg blurdetect score) inside the
+  // window the checkpoint should land in. Checkpoint 0 is the page's
+  // opening position (silent — nothing to arrive at, no caption).
   const CHECKPOINTS = [
-    { clip: 0,  time: 0 },                                                                          // 1 — start, no change
-    { clip: 0,  time: 10,   label: '01 — L’Arrivée',        body: 'Une terrasse pensée pour l’heure dorée.' },
-    { clip: 1,  time: 9.73, label: '02 — La Piscine',       body: 'Là où la cuisine extérieure rencontre l’eau.' },      // sharpest frame near sec 10 of clip 2
-    { clip: 2,  time: 20,   label: '03 — Le Séjour',        body: 'Ouvert, lumineux, pensé pour se retrouver.' },
-    { clip: 4,  time: 0,    label: '04 — Le Garage',        body: 'Stationnement couvert, à deux pas de la cuisine.' },
-    { clip: 6,  time: 0,    label: '05 — La Cuisine',       body: 'Là où la maison prend vie.' },
-    { clip: 7,  time: 4.0,  label: '06 — La Salle de Bain', body: 'Douche pluie, lumière naturelle, aucun compromis.' }, // sharpest frame, clip 8, 3.15–4.15s window
-    { clip: 7,  time: 6.0,  auto: true },                                                            // 8 — plays 3s→6s of clip 8, then auto-advances, no pause
-    { clip: 10, time: 15,   label: '07 — Le Retour',        body: 'De retour au point de départ — la piscine, au crépuscule.' },
+    { time: 0 },
+    { time: 7.000000,  label: '01 — La Terrasse',          body: 'Piscine et terrasse, pensées pour l’heure dorée.' },
+    { time: 18.133333, label: '02 — La Salle à Manger',    body: 'Un repas dehors, un repas dedans — les deux se répondent.' },
+    { time: 35.933333, label: '03 — La Buanderie',         body: 'Chaque espace a sa place, jusqu’au moindre détail.' },
+    { time: 41.000000, label: '04 — Le Garage',            body: 'Stationnement couvert, à deux pas de la maison.' },
+    { time: 58.933333, label: '05 — La Chambre',           body: 'La suite principale, baignée de lumière du soir.' },
+    { time: 66.000000, label: '06 — La Chambre',           body: 'Un coin bureau, une vue sur les arbres.' },
+    { time: 80.933333, label: '07 — Retour à la Piscine',  body: 'De retour au point de départ, au crépuscule.' },
   ];
-
-  function elapsedBefore(idx) {
-    let s = 0;
-    for (let i = 0; i < idx; i++) s += CLIPS[i].duration;
-    return s;
-  }
-  function timelinePos(cp) { return elapsedBefore(cp.clip) + cp.time; }
 
   // Precompute how much footage (seconds) each checkpoint-to-checkpoint
   // segment covers, so playbackRate can be derived to fit it into
   // SEGMENT_SECONDS.
   const SEGMENT_DURATIONS = [];
   for (let i = 0; i < CHECKPOINTS.length - 1; i++) {
-    SEGMENT_DURATIONS.push(timelinePos(CHECKPOINTS[i + 1]) - timelinePos(CHECKPOINTS[i]));
+    SEGMENT_DURATIONS.push(CHECKPOINTS[i + 1].time - CHECKPOINTS[i].time);
   }
   // Capped at 4x — real video decoders start dropping frames above that,
-  // which looks choppy even with genuine native playback. Segments needing
-  // more than this (e.g. the ~30s checkpoint 2→3 span) simply take longer
-  // than SEGMENT_SECONDS rather than sacrifice smoothness.
+  // which looks choppy even with genuine native playback.
   const MAX_RATE = 4;
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function segmentRate(a, b) {
@@ -222,86 +169,50 @@
     return clamp(SEGMENT_DURATIONS[seg] / SEGMENT_SECONDS, 0.0625, MAX_RATE);
   }
 
-  // How much accumulated scroll (px) is needed to trigger a checkpoint —
-  // "one good scroll" — tuned to roughly two or three normal wheel notches.
-  const TRIGGER_THRESHOLD = 260;
-  const TOUCH_MULTIPLIER = 2.2;
-  const IDLE_MS = 150;
-  // If a motion's video stops advancing for this long (stalled buffering,
-  // failed seek, etc.), force it to complete rather than block input
-  // indefinitely.
-  const STALL_MS = 1200;
+  // Maps a position in the forward timeline to the equivalent position in
+  // the reversed twin's own timeline (frame order is flipped).
+  function revTime(t) { return TOTAL_DURATION - t; }
 
-  function clipDuration(i) { return CLIPS[i].duration; }
-  // Maps a position in the forward clip's timeline to the equivalent
-  // position in its reversed twin's own timeline (frame order is flipped).
-  function revTime(clipIdx, t) { return clipDuration(clipIdx) - t; }
-
-  const videos = Array.from(document.querySelectorAll('.clip:not([data-rev])'));
-  const videosRev = Array.from(document.querySelectorAll('.clip[data-rev]'));
+  const fwd = document.getElementById('fwdVideo');
+  const rev = document.getElementById('revVideo');
   const loadingLabel = document.getElementById('loadingLabel');
   const progressFill = document.getElementById('progressFill');
   const checkpointTextEl = document.getElementById('checkpointText');
   const cpLabelEl = document.getElementById('cpLabel');
   const cpBodyEl = document.getElementById('cpBody');
 
-  videos.forEach((v) => { v.playsInline = true; });
-  videosRev.forEach((v) => { v.playsInline = true; });
+  fwd.playsInline = true;
+  rev.playsInline = true;
 
   let ready = false;
-  videos[0].addEventListener('loadeddata', () => {
+  fwd.addEventListener('loadeddata', () => {
     if (ready) return;
     ready = true;
     loadingLabel.style.opacity = '0';
   }, { once: true });
 
-  // Only clip 0's pair preloads eagerly (see HTML). As activeIndex moves,
-  // keep just its immediate neighborhood warm instead of all 22 files at
-  // once — cuts decode/network contention that was dragging the framerate
-  // down during active playback.
-  const warmed = new Array(CLIPS.length).fill(false);
-  warmed[0] = true;
-  function warmClip(idx) {
-    if (idx < 0 || idx >= CLIPS.length || warmed[idx]) return;
-    warmed[idx] = true;
-    videos[idx].preload = 'auto';
-    videos[idx].load();
-    videosRev[idx].preload = 'auto';
-    videosRev[idx].load();
-  }
-  function warmAround(idx) {
-    warmClip(idx - 1);
-    warmClip(idx);
-    warmClip(idx + 1);
-  }
-
   let lastProgressPct = -1;
   function updateProgress() {
-    const pct = (elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100;
+    const pct = videoTime / TOTAL_DURATION * 100;
     if (Math.abs(pct - lastProgressPct) < 0.05) return; // skip redundant layout/paint
     lastProgressPct = pct;
     progressFill.style.width = pct + '%';
   }
-  // useReversed picks which of the two <video>s for this clip index is
-  // shown. `instant` skips the crossfade — used specifically for a
-  // same-clip direction reversal, where forward/reversed should show
-  // essentially the same frame and a blend would just look like overlap.
-  function setActive(idx, useReversed, instant) {
+  // instant skips the crossfade — used specifically for a direction
+  // reversal, where forward/reversed should show essentially the same
+  // frame and a blend would just look like overlap.
+  function setActive(useReversed, instant) {
+    if (instant) { fwd.classList.add('instant'); rev.classList.add('instant'); }
+    fwd.classList.toggle('active', !useReversed);
+    rev.classList.toggle('active', !!useReversed);
     if (instant) {
-      videos.forEach((v) => v.classList.add('instant'));
-      videosRev.forEach((v) => v.classList.add('instant'));
-    }
-    videos.forEach((v, i) => v.classList.toggle('active', !useReversed && i === idx));
-    videosRev.forEach((v, i) => v.classList.toggle('active', !!useReversed && i === idx));
-    if (instant) {
-      void videos[idx].offsetHeight; // force layout so transition:none applies before it's removed
-      videos.forEach((v) => v.classList.remove('instant'));
-      videosRev.forEach((v) => v.classList.remove('instant'));
+      void fwd.offsetHeight; // force layout so transition:none applies before it's removed
+      fwd.classList.remove('instant');
+      rev.classList.remove('instant');
     }
   }
 
-  let activeIndex = 0;
-  let videoTime = 0;          // seconds within the active clip, forward-timeline terms
+  let videoTime = 0;          // seconds, position in the single timeline
   let restingCPIndex = 0;     // index into CHECKPOINTS we last came to rest at
   let accumulator = 0;
   let pendingSign = 0;
@@ -314,7 +225,7 @@
   // direction changes correctly bounce between the same two checkpoints
   // instead of drifting, with no separately-tracked direction flag needed.
   let motion = null;
-  // motion = { targetCPIndex, otherEnd, rate, playing, lastVideoTime, lastProgress }
+  // motion = { targetCPIndex, otherEnd, rate, playing, justReversed, lastVideoTime, lastProgress }
 
   function enterPause(cpIndex) {
     const cp = CHECKPOINTS[cpIndex];
@@ -332,10 +243,9 @@
   function arriveAt(cpIndex, sign) {
     restingCPIndex = cpIndex;
     motion = null;
-    warmAround(activeIndex);
-    videos[activeIndex].pause();
-    videos[activeIndex].currentTime = videoTime;
-    setActive(activeIndex, false, sign < 0); // arriving backward = was showing the reversed twin, swap to forward instantly
+    fwd.pause();
+    fwd.currentTime = videoTime;
+    setActive(false, sign < 0); // arriving backward = was showing the reversed twin, swap to forward instantly
     const cp = CHECKPOINTS[cpIndex];
     if (cp.auto) startMotion(cpIndex + sign);
     else enterPause(cpIndex);
@@ -362,13 +272,12 @@
     motion.targetCPIndex = newTarget;
     motion.rate = rate;
     motion.playing = false;
-    motion.justReversed = true; // next setActive() for this clip should be an instant cut, not a crossfade
+    motion.justReversed = true; // next setActive() should be an instant cut, not a crossfade
     motion.lastVideoTime = undefined;
   }
 
   // Dismissing a pause must *itself* continue the film — not just step past
-  // the boundary and wait for a second, separate scroll gesture to actually
-  // move.
+  // the boundary and wait for a second, separate scroll gesture.
   function exitPause(dismissSign) {
     paused = false;
     accumulator = 0;
@@ -376,29 +285,24 @@
     startMotion(restingCPIndex + dismissSign);
   }
 
-  function currentTimelinePos() { return elapsedBefore(activeIndex) + videoTime; }
   function motionSign() {
-    const d = timelinePos(CHECKPOINTS[motion.targetCPIndex]) - currentTimelinePos();
+    const d = CHECKPOINTS[motion.targetCPIndex].time - videoTime;
     return d > 0.01 ? 1 : d < -0.01 ? -1 : 0;
   }
 
-  // Mid-flight direction change: instant, no brake. Now that seeks are fast
-  // (keyframe re-encode), switching straight to the other clip/direction
-  // already looks smooth — a fixed brake delay was reading as lag,
-  // especially on small scrolls. Pauses whichever element is currently
-  // playing (if anything's actually started yet) and swaps target/origin.
+  // Mid-flight direction change: instant, no brake. Pauses whichever
+  // element is currently playing (if anything's actually started yet) and
+  // swaps target/origin.
   function reverseInstantly() {
     if (motion.playing) {
       const curSign = motionSign();
-      const curVid = curSign > 0 ? videos[activeIndex] : videosRev[activeIndex];
+      const curVid = curSign > 0 ? fwd : rev;
       curVid.pause();
       // videoTime is only updated once per tick (~16ms), but this pause
-      // happens the instant the scroll event fires — possibly a few ms
-      // after the last tick's reading. Resync to curVid's true position
-      // right now, so the incoming (reversed) element seeks to exactly
-      // where this one actually stopped, not a stale position — that gap
-      // was likely the fast flicker/overlap right at the switch instant.
-      videoTime = curSign > 0 ? curVid.currentTime : revTime(activeIndex, curVid.currentTime);
+      // happens the instant the scroll event fires. Resync to curVid's true
+      // position right now, so the incoming element seeks to exactly where
+      // this one actually stopped, not a stale position.
+      videoTime = curSign > 0 ? curVid.currentTime : revTime(curVid.currentTime);
     }
     reverseMotion();
   }
@@ -423,33 +327,41 @@
     }
   }
 
+  // How much accumulated scroll (px) is needed to trigger a checkpoint —
+  // "one good scroll" — tuned to roughly two or three normal wheel notches.
+  const TRIGGER_THRESHOLD = 260;
+  const TOUCH_MULTIPLIER = 2.2;
+  const IDLE_MS = 150;
+  // If a motion's video stops advancing for this long (stalled buffering,
+  // failed seek, etc.), force it to complete rather than block input
+  // indefinitely.
+  const STALL_MS = 1200;
+
   function handleMotion(now) {
     const tgt = CHECKPOINTS[motion.targetCPIndex];
     const sign = motionSign();
     if (sign === 0) { arriveAt(motion.targetCPIndex, sign); return; }
 
-    const atTargetClip = activeIndex === tgt.clip;
-    const subTarget = atTargetClip ? tgt.time : (sign > 0 ? clipDuration(activeIndex) : 0);
-    const vid = sign > 0 ? videos[activeIndex] : videosRev[activeIndex];
+    const subTarget = tgt.time;
+    const vid = sign > 0 ? fwd : rev;
 
-    // Already sitting exactly at this clip's sub-target (e.g. we just
-    // arrived here at its very last frame, about to hop to the next clip)
-    // — skip play() entirely. Calling play() on a clip already at its
+    // Already sitting exactly at the target (e.g. we just arrived here) —
+    // skip play() entirely. Calling play() on a clip already at its
     // end/start is a real edge case that can make it silently rewind and
     // replay instead of advancing.
     const alreadyThere = sign > 0 ? videoTime >= subTarget - 0.03 : videoTime <= subTarget + 0.03;
 
     if (!alreadyThere) {
       if (!motion.playing) {
-        vid.currentTime = sign > 0 ? videoTime : revTime(activeIndex, videoTime);
+        vid.currentTime = sign > 0 ? videoTime : revTime(videoTime);
         vid.playbackRate = motion.rate;
         vid.play().catch(() => {});
         motion.playing = true;
         motion.lastVideoTime = undefined;
-        setActive(activeIndex, sign < 0, motion.justReversed);
+        setActive(sign < 0, motion.justReversed);
         motion.justReversed = false;
       }
-      videoTime = sign > 0 ? vid.currentTime : revTime(activeIndex, vid.currentTime);
+      videoTime = sign > 0 ? vid.currentTime : revTime(vid.currentTime);
 
       // Stall guard: force this leg to complete if videoTime stops
       // advancing (stalled buffering, failed seek, etc.) instead of
@@ -469,14 +381,7 @@
     if (reached) {
       vid.pause();
       videoTime = subTarget;
-      if (atTargetClip) {
-        arriveAt(motion.targetCPIndex, sign);
-      } else {
-        activeIndex += sign;
-        videoTime = sign > 0 ? 0 : clipDuration(activeIndex);
-        motion.playing = false;
-        warmAround(activeIndex);
-      }
+      arriveAt(motion.targetCPIndex, sign);
     }
   }
 
@@ -492,7 +397,6 @@
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
-  warmAround(0); // give clip 1 a head start before the user's first scroll
 
   window.addEventListener('wheel', (e) => {
     e.preventDefault();

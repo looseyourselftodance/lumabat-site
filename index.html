@@ -134,7 +134,7 @@
       transform: translate(-50%, 16px);
       z-index: 60; text-align: center;
       opacity: 0; pointer-events: none;
-      transition: opacity 0.5s ease, transform 0.5s ease;
+      transition: opacity 1.4s ease, transform 1.4s ease; /* long, slow fade rather than a quick pop */
     }
     .checkpoint-text.visible { opacity: 1; transform: translate(-50%, 0); }
     .checkpoint-text .cp-label {
@@ -186,43 +186,40 @@
     }
     .cp-cta-btn.primary:hover { background: #d4bb96; }
 
-    /* ── Opening hero: logo + headline, shown only at rest on checkpoint 0.
-       Fades out the instant the film actually starts (see startMotion()) —
-       vertically centered rather than bottom-third like the checkpoint
-       captions, since this is a landing moment, not a scene annotation. ── */
+    /* ── Opening scroll cue: no headline anymore, just a "scroll down"
+       nudge at the bottom, shown only at rest on checkpoint 0. Stays
+       invisible for the first 2s after load (see the setTimeout in the
+       script) rather than appearing immediately, then fades in slowly —
+       and fades back out just as slowly the instant the film actually
+       starts (see startMotion()). ── */
     .hero {
       position: fixed; inset: 0;
       z-index: 55;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      text-align: center;
+      display: flex; align-items: flex-end; justify-content: center;
+      padding-bottom: 8vh;
       pointer-events: none;
-      opacity: 1;
-      transition: opacity 0.6s ease;
+      opacity: 0;
+      transition: opacity 1.8s ease;
     }
-    .hero.hidden { opacity: 0; }
-    .hero-headline {
-      font-family: 'Cormorant Garamond', serif;
-      font-weight: 300;
-      font-size: clamp(2rem, 5vw, 3.4rem);
-      line-height: 1.25;
-      color: #F8F7F4;
-      text-shadow: 0 2px 24px rgba(0,0,0,0.55);
-      max-width: 720px;
-      padding: 0 1rem;
+    .hero.visible { opacity: 1; }
+    .scroll-cue {
+      display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
     }
-    .hero-specs {
-      margin-top: 0.9rem;
+    .scroll-cue-label {
       font-family: 'Inter', sans-serif;
-      font-size: 0.72rem; font-weight: 500;
-      letter-spacing: 0.22em; text-transform: uppercase;
+      font-size: 0.62rem; letter-spacing: 0.3em; text-transform: uppercase;
+      color: rgba(248,247,244,0.6);
+      text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    }
+    .scroll-cue-arrow {
+      font-size: 1.3rem; line-height: 1;
       color: var(--bronze-light);
+      text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+      animation: scrollCueBounce 2s ease-in-out infinite;
     }
-    .hero-hint {
-      margin-top: 2.3rem;
-      font-family: 'Inter', sans-serif;
-      font-size: 0.62rem; letter-spacing: 0.25em; text-transform: uppercase;
-      color: rgba(248,247,244,0.5);
+    @keyframes scrollCueBounce {
+      0%, 100% { transform: translateY(0); opacity: 0.65; }
+      50% { transform: translateY(7px); opacity: 1; }
     }
 
     /* ── Mobile ──
@@ -241,7 +238,6 @@
       header nav a.contact-btn { padding: 0.55rem 0.8rem; } /* kept tall enough to stay a comfortable tap target despite the smaller font */
 
       .text-panel { width: 92vw; padding: 1.5rem 1.6rem; }
-      .hero-headline { padding: 0; }
       .checkpoint-text { bottom: 12%; }
       .cp-cta-btn { padding: 0.75rem 1.1rem; } /* tap-target size matters more than desktop's tighter padding */
     }
@@ -282,11 +278,10 @@
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 <div class="hero" id="hero">
-  <div class="text-panel">
-    <div class="hero-headline">Maison Ambre</div>
-    <div class="hero-specs">Trois chambres · Plain-pied · Piscine</div>
+  <div class="scroll-cue">
+    <span class="scroll-cue-label">Scroll</span>
+    <span class="scroll-cue-arrow">↓</span>
   </div>
-  <div class="hero-hint">scroll pour explorer</div>
 </div>
 <div class="checkpoint-text text-panel" id="checkpointText">
   <div class="cp-label" id="cpLabel"></div>
@@ -396,6 +391,10 @@
   setTimeout(markReady, 8000);
   fwd.load();
 
+  // Scroll-down cue stays invisible for the first 2s (let the film's
+  // opening shot land on its own first), then fades in slowly.
+  setTimeout(() => heroEl.classList.add('visible'), 2000);
+
   let lastProgressPct = -1;
   function updateProgress() {
     const pct = videoTime / TOTAL_DURATION * 100;
@@ -488,7 +487,7 @@
     fwd.currentTime = 0;
     setActive(false, true);
     checkpointTextEl.classList.remove('visible');
-    heroEl.classList.remove('hidden');
+    heroEl.classList.add('visible'); // reappears immediately on an explicit restart — no need to replay the 2s delay
   }
 
   // Always come to rest on the forward element (paused, positioned
@@ -507,7 +506,7 @@
 
   function startMotion(targetCPIndex) {
     if (targetCPIndex < 0 || targetCPIndex >= CHECKPOINTS.length) return;
-    heroEl.classList.add('hidden'); // the film has actually started — no-op after the first time
+    heroEl.classList.remove('visible'); // the film has actually started — no-op after the first time
     motion = {
       targetCPIndex,
       otherEnd: restingCPIndex,

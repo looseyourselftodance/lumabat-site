@@ -95,30 +95,34 @@
 
 <div id="stage">
   <video class="clip active" data-index="0" src="videos/01.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="1" src="videos/02.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="2" src="videos/03.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="3" src="videos/04.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="4" src="videos/05.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="5" src="videos/06.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="6" src="videos/07.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="7" src="videos/08.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="8" src="videos/09.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="9" src="videos/10.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="10" src="videos/11.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="1" src="videos/02.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="2" src="videos/03.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="3" src="videos/04.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="4" src="videos/05.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="5" src="videos/06.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="6" src="videos/07.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="7" src="videos/08.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="8" src="videos/09.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="9" src="videos/10.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="10" src="videos/11.mp4" muted playsinline preload="none"></video>
   <!-- Reversed twins: same content, frames in reverse order. Playing these
        forward looks exactly like the original playing backward — genuine
-       native decode either way, since <video> has no reverse playbackRate. -->
+       native decode either way, since <video> has no reverse playbackRate.
+       Only clip 0's pair preloads eagerly; the rest warm up dynamically as
+       we approach them (see warmAround() in the script) — keeping only a
+       handful of the 22 files buffered at once instead of all of them
+       fighting for decode/network bandwidth simultaneously. -->
   <video class="clip" data-index="0" data-rev src="videos/01r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="1" data-rev src="videos/02r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="2" data-rev src="videos/03r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="3" data-rev src="videos/04r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="4" data-rev src="videos/05r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="5" data-rev src="videos/06r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="6" data-rev src="videos/07r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="7" data-rev src="videos/08r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="8" data-rev src="videos/09r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="9" data-rev src="videos/10r.mp4" muted playsinline preload="auto"></video>
-  <video class="clip" data-index="10" data-rev src="videos/11r.mp4" muted playsinline preload="auto"></video>
+  <video class="clip" data-index="1" data-rev src="videos/02r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="2" data-rev src="videos/03r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="3" data-rev src="videos/04r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="4" data-rev src="videos/05r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="5" data-rev src="videos/06r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="6" data-rev src="videos/07r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="7" data-rev src="videos/08r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="8" data-rev src="videos/09r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="9" data-rev src="videos/10r.mp4" muted playsinline preload="none"></video>
+  <video class="clip" data-index="10" data-rev src="videos/11r.mp4" muted playsinline preload="none"></video>
 </div>
 <div class="loading-label" id="loadingLabel">Loading…</div>
 <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -249,8 +253,32 @@
     loadingLabel.style.opacity = '0';
   }, { once: true });
 
+  // Only clip 0's pair preloads eagerly (see HTML). As activeIndex moves,
+  // keep just its immediate neighborhood warm instead of all 22 files at
+  // once — cuts decode/network contention that was dragging the framerate
+  // down during active playback.
+  const warmed = new Array(CLIPS.length).fill(false);
+  warmed[0] = true;
+  function warmClip(idx) {
+    if (idx < 0 || idx >= CLIPS.length || warmed[idx]) return;
+    warmed[idx] = true;
+    videos[idx].preload = 'auto';
+    videos[idx].load();
+    videosRev[idx].preload = 'auto';
+    videosRev[idx].load();
+  }
+  function warmAround(idx) {
+    warmClip(idx - 1);
+    warmClip(idx);
+    warmClip(idx + 1);
+  }
+
+  let lastProgressPct = -1;
   function updateProgress() {
-    progressFill.style.width = ((elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100) + '%';
+    const pct = (elapsedBefore(activeIndex) + videoTime) / TOTAL_DURATION * 100;
+    if (Math.abs(pct - lastProgressPct) < 0.05) return; // skip redundant layout/paint
+    lastProgressPct = pct;
+    progressFill.style.width = pct + '%';
   }
   // useReversed picks which of the two <video>s for this clip index is shown.
   function setActive(idx, useReversed) {
@@ -294,6 +322,7 @@
   function arriveAt(cpIndex, sign) {
     restingCPIndex = cpIndex;
     motion = null;
+    warmAround(activeIndex);
     videos[activeIndex].pause();
     videos[activeIndex].currentTime = videoTime;
     setActive(activeIndex, false);
@@ -446,6 +475,7 @@
         activeIndex += sign;
         videoTime = sign > 0 ? 0 : clipDuration(activeIndex);
         motion.playing = false;
+        warmAround(activeIndex);
       }
     }
   }
@@ -463,6 +493,7 @@
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
+  warmAround(0); // give clip 1 a head start before the user's first scroll
 
   window.addEventListener('wheel', (e) => {
     e.preventDefault();
